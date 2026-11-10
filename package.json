@@ -1,0 +1,47 @@
+{
+  "name": "ppp-pulpay-backend",
+  "version": "1.0.0",
+  "description": "Pulsar Payments - Hub de Pagamentos e Conciliação com Webhooks (Mentoria 2.0 - Turma 5)",
+  "main": "src/server.js",
+  "type": "module",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon --ignore data/ src/server.js",
+    "test": "node --test --test-concurrency=1 'tests/unit/**/*.test.js'",
+    "test:coverage": "node --test --test-concurrency=1 --experimental-test-coverage 'tests/unit/**/*.test.js'"
+  },
+  "nodemonConfig": {
+    "ignore": [
+      "data/**"
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dennysmatos/mts20t5-ppp-pulpay-backend.git"
+  },
+  "keywords": [
+    "payments",
+    "webhooks",
+    "reconciliation",
+    "rest-api",
+    "qa-automation",
+    "mentoria-2.0"
+  ],
+  "author": "Dennys Matos <dennysmatos@gmail.com>",
+  "license": "MIT",
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "js-yaml": "^4.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.0",
+    "swagger-ui-express": "^5.0.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  }
+}
