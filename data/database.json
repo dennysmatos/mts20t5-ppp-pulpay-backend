@@ -1,0 +1,68 @@
+{
+  "merchants": [
+    {
+      "_id": "ed7561f8-9f64-46bb-af05-1a72947799d8",
+      "id": "ed7561f8-9f64-46bb-af05-1a72947799d8",
+      "name": "Loja Estrela LTDA",
+      "email": "financeiro@lojaestrela.com.br",
+      "document": "12.345.678/0001-99",
+      "password": "$2a$10$u9A87JL5h28gdcWq088.EuYIL.DnbWjftk6i4WtcvKI1o04bVo/bm",
+      "createdAt": "2026-11-12T18:58:34.404Z",
+      "updatedAt": "2026-11-12T18:58:34.404Z"
+    }
+  ],
+  "accounts": [
+    {
+      "_id": "40fb3bc7-ab30-4e07-ae82-e05a1b083cc2",
+      "id": "40fb3bc7-ab30-4e07-ae82-e05a1b083cc2",
+      "merchantId": "ed7561f8-9f64-46bb-af05-1a72947799d8",
+      "name": "Carteira Principal BRL",
+      "currency": "BRL",
+      "balance": 1250,
+      "status": "ACTIVE",
+      "createdAt": "2026-11-12T19:02:37.327Z",
+      "updatedAt": "2026-11-12T19:04:34.979Z"
+    }
+  ],
+  "transactions": [
+    {
+      "_id": "a3a19616-7993-447c-9a3f-3b00ab95054d",
+      "id": "a3a19616-7993-447c-9a3f-3b00ab95054d",
+      "merchantId": "ed7561f8-9f64-46bb-af05-1a72947799d8",
+      "accountId": "40fb3bc7-ab30-4e07-ae82-e05a1b083cc2",
+      "type": "CHARGE",
+      "amount": 250,
+      "currency": "BRL",
+      "status": "PAID",
+      "description": "Pedido #9841 - Assinatura Anual",
+      "idempotencyKey": "idem-key-2026-0001",
+      "refundReason": null,
+      "refundedAt": null,
+      "metadata": {
+        "orderId": "9841",
+        "paymentMethod": "PIX"
+      },
+      "createdAt": "2026-11-12T19:04:34.980Z",
+      "updatedAt": "2026-11-12T19:04:34.980Z"
+    }
+  ],
+  "webhooks": [
+    {
+      "_id": "338d110a-e348-4248-87d9-be0d27d2b1e2",
+      "id": "338d110a-e348-4248-87d9-be0d27d2b1e2",
+      "merchantId": "ed7561f8-9f64-46bb-af05-1a72947799d8",
+      "url": "https://api.lojaestrela.com.br/webhooks/pulsar",
+      "events": [
+        "transaction.paid",
+        "transaction.failed",
+        "transaction.refunded",
+        "webhook.test"
+      ],
+      "secret": "whsec_custom_merchant_secret",
+      "active": true,
+      "deliveryLogs": [],
+      "createdAt": "2026-11-12T19:06:07.016Z",
+      "updatedAt": "2026-11-12T19:06:07.016Z"
+    }
+  ]
+}
