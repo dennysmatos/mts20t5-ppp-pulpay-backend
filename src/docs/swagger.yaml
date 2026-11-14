@@ -1,0 +1,2464 @@
+openapi: 3.0.3
+info:
+  title: Pulsar Payments API
+  version: 1.0.0
+  description: |
+    API REST do **Pulsar Payments** — Hub de Pagamentos e Conciliação com Webhooks (Mentoria 2.0 - Turma 5).
+
+    ### Automação de Testes no Postman (OpenAPI Import)
+    Esta especificação OpenAPI 3.0 está pronta para importação direta no **Postman** contendo:
+    - **Scripts de Teste (`x-postman-events` e blocos `pm.test`):** Validações de Status Code, Mensagens de Retorno (`message` / `error`), Contrato JSON, SLA de Tempo de Resposta (`< 1000ms`), Segurança (ocultação de `password` e formato de assinatura HMAC `sha256=`) e encadeamento automático de variáveis de coleção (`jwt_token`, `merchant_id`, `account_id`, `transaction_id`, `webhook_id`, `idempotency_key`).
+    - **Exemplos de Requisição e Resposta (`examples`):** Cenários positivos (`200`, `201`) e negativos (`400`, `401`, `404`, `409`, `422`) mapeados com as mensagens exatas da API.
+
+servers:
+  - url: http://localhost:3000
+    description: Servidor Local de Desenvolvimento
+
+tags:
+  - name: Health
+    description: Monitoramento e disponibilidade do serviço
+  - name: Auth
+    description: Registro e autenticação de lojistas (Merchants)
+  - name: Accounts
+    description: Gestão de contas e carteiras financeiras (BRL)
+  - name: Transactions
+    description: Motor de pagamentos, cobranças, idempotência e estornos
+  - name: Webhooks
+    description: Gestão de webhooks e simulação de entregas com assinatura HMAC SHA-256
+
+x-postman-variables:
+  - key: baseUrl
+    value: http://localhost:3000
+  - key: jwt_token
+    value: ""
+  - key: merchant_id
+    value: ""
+  - key: merchant_email
+    value: qa@pulsarstore.com.br
+  - key: account_id
+    value: ""
+  - key: transaction_id
+    value: ""
+  - key: webhook_id
+    value: ""
+  - key: idempotency_key
+    value: idem-key-2026-0001
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Informe o token JWT (`{{jwt_token}}`) obtido no endpoint `/auth/login` ou `/auth/register`.
+
+  parameters:
+    IdempotencyKeyHeader:
+      in: header
+      name: Idempotency-Key
+      required: false
+      schema:
+        type: string
+        example: idem-key-2026-0001
+      description: Chave única de idempotência para evitar duplicidade de movimentações financeiras.
+
+  schemas:
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          example: UNPROCESSABLE_ENTITY
+        message:
+          type: string
+          example: "Operação não permitida: o saldo da conta não pode ser negativo"
+
+    Merchant:
+      type: object
+      properties:
+        _id:
+          type: string
+          example: f47ac10b-58cc-4372-a567-0e02b2c3d479
+        id:
+          type: string
+          example: f47ac10b-58cc-4372-a567-0e02b2c3d479
+        name:
+          type: string
+          example: Loja Estrela LTDA
+        email:
+          type: string
+          format: email
+          example: financeiro@lojaestrela.com.br
+        document:
+          type: string
+          nullable: true
+          example: "12.345.678/0001-99"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    RegisterRequest:
+      type: object
+      required:
+        - name
+        - email
+        - password
+      properties:
+        name:
+          type: string
+          example: Loja Estrela LTDA
+        email:
+          type: string
+          format: email
+          example: financeiro@lojaestrela.com.br
+        password:
+          type: string
+          minLength: 6
+          example: Senha@123
+        document:
+          type: string
+          example: "12.345.678/0001-99"
+
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          example: financeiro@lojaestrela.com.br
+        password:
+          type: string
+          example: Senha@123
+
+    AuthResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: Autenticação realizada com sucesso
+        token:
+          type: string
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        type:
+          type: string
+          example: Bearer
+        expiresIn:
+          type: string
+          example: 1d
+        merchant:
+          $ref: '#/components/schemas/Merchant'
+
+    Account:
+      type: object
+      properties:
+        _id:
+          type: string
+          example: a12bc34d-56ef-4789-8012-3456789abcde
+        id:
+          type: string
+          example: a12bc34d-56ef-4789-8012-3456789abcde
+        merchantId:
+          type: string
+          example: f47ac10b-58cc-4372-a567-0e02b2c3d479
+        name:
+          type: string
+          example: Carteira Principal BRL
+        currency:
+          type: string
+          enum: [BRL]
+          example: BRL
+        balance:
+          type: number
+          format: double
+          example: 1500.50
+        status:
+          type: string
+          enum: [ACTIVE, BLOCKED]
+          example: ACTIVE
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateAccountRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          example: Carteira Principal BRL
+        initialBalance:
+          type: number
+          format: double
+          default: 0
+          example: 1000.00
+        currency:
+          type: string
+          enum: [BRL]
+          default: BRL
+          example: BRL
+
+    Transaction:
+      type: object
+      properties:
+        _id:
+          type: string
+          example: c98de76f-54ba-4321-9876-543210fedcba
+        id:
+          type: string
+          example: c98de76f-54ba-4321-9876-543210fedcba
+        merchantId:
+          type: string
+          example: f47ac10b-58cc-4372-a567-0e02b2c3d479
+        accountId:
+          type: string
+          example: a12bc34d-56ef-4789-8012-3456789abcde
+        type:
+          type: string
+          enum: [CHARGE, PAYMENT, CREDIT, DEBIT]
+          example: CHARGE
+        amount:
+          type: number
+          format: double
+          example: 250.00
+        currency:
+          type: string
+          example: BRL
+        status:
+          type: string
+          enum: [PENDING, PAID, FAILED, REFUNDED]
+          example: PAID
+        description:
+          type: string
+          example: Pedido #9841 - Assinatura Anual
+        idempotencyKey:
+          type: string
+          nullable: true
+          example: idem-key-2026-0001
+        refundReason:
+          type: string
+          nullable: true
+          example: null
+        refundedAt:
+          type: string
+          format: date-time
+          nullable: true
+          example: null
+        metadata:
+          type: object
+          example:
+            orderId: "9841"
+            paymentMethod: "PIX"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateTransactionRequest:
+      type: object
+      required:
+        - accountId
+        - amount
+      properties:
+        accountId:
+          type: string
+          example: a12bc34d-56ef-4789-8012-3456789abcde
+        type:
+          type: string
+          enum: [CHARGE, PAYMENT, CREDIT, DEBIT]
+          default: CHARGE
+          example: CHARGE
+        amount:
+          type: number
+          format: double
+          example: 250.00
+        status:
+          type: string
+          enum: [PENDING, PAID, FAILED]
+          default: PAID
+          example: PAID
+        description:
+          type: string
+          example: Pedido #9841 - Assinatura Anual
+        metadata:
+          type: object
+          example:
+            orderId: "9841"
+            paymentMethod: "PIX"
+
+    RefundTransactionRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          example: Cancelamento solicitado pelo cliente dentro do prazo de 7 dias
+
+    Webhook:
+      type: object
+      properties:
+        _id:
+          type: string
+          example: d11ee22f-33aa-44bb-855c-6677889900aa
+        id:
+          type: string
+          example: d11ee22f-33aa-44bb-855c-6677889900aa
+        merchantId:
+          type: string
+          example: f47ac10b-58cc-4372-a567-0e02b2c3d479
+        url:
+          type: string
+          format: uri
+          example: https://api.lojaestrela.com.br/webhooks/pulsar
+        events:
+          type: array
+          items:
+            type: string
+          example:
+            - transaction.paid
+            - transaction.failed
+            - transaction.refunded
+            - webhook.test
+        secret:
+          type: string
+          example: whsec_pulsar_hmac_secret_2026
+        active:
+          type: boolean
+          example: true
+        deliveryLogs:
+          type: array
+          items:
+            type: object
+            properties:
+              _id:
+                type: string
+                example: e99ff88a-77bb-466c-955d-4433221100ff
+              event:
+                type: string
+                example: transaction.paid
+              signature:
+                type: string
+                example: sha256=8f4e2a0c1b9d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f
+              status:
+                type: string
+                example: SIMULATED
+              statusCode:
+                type: integer
+                example: 200
+              attemptedAt:
+                type: string
+                format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateWebhookRequest:
+      type: object
+      required:
+        - url
+      properties:
+        url:
+          type: string
+          format: uri
+          example: https://api.lojaestrela.com.br/webhooks/pulsar
+        events:
+          type: array
+          items:
+            type: string
+          example:
+            - transaction.paid
+            - transaction.failed
+            - transaction.refunded
+            - webhook.test
+        secret:
+          type: string
+          example: whsec_pulsar_hmac_secret_2026
+
+    TestWebhookRequest:
+      type: object
+      properties:
+        webhookId:
+          type: string
+          description: ID do webhook cadastrado (opcional; se omitido, utiliza o webhook ativo mais recente)
+          example: d11ee22f-33aa-44bb-855c-6677889900aa
+        event:
+          type: string
+          default: webhook.test
+          example: webhook.test
+        data:
+          type: object
+          example:
+            transactionId: c98de76f-54ba-4321-9876-543210fedcba
+            status: PAID
+            amount: 250.00
+
+paths:
+  /health:
+    get:
+      operationId: getHealthStatus
+      tags: [Health]
+      summary: Verifica o status de saúde da API Pulsar Payments
+      description: |
+        Verifica a disponibilidade imediata do serviço Pulsar Payments.
+
+        ### Postman Test Script (`Tests`)
+        ```javascript
+        pm.test("Status code deve ser 200 OK", () => {
+            pm.response.to.have.status(200);
+        });
+
+        pm.test("Tempo de resposta menor que 500ms", () => {
+            pm.expect(pm.response.responseTime).to.be.below(500);
+        });
+
+        pm.test("Header Content-Type deve ser application/json", () => {
+            pm.response.to.have.header("Content-Type");
+            pm.expect(pm.response.headers.get("Content-Type")).to.include("application/json");
+        });
+
+        pm.test("Deve retornar status 'ok' e nome do serviço 'Pulsar Payments API'", () => {
+            const jsonData = pm.response.json();
+            pm.expect(jsonData).to.have.property("status", "ok");
+            pm.expect(jsonData).to.have.property("service", "Pulsar Payments API");
+            pm.expect(jsonData).to.have.property("timestamp").that.is.a("string");
+        });
+        ```
+      x-postman-events:
+        - listen: test
+          script:
+            type: text/javascript
+            exec:
+              - 'pm.test("Status code deve ser 200 OK", () => { pm.response.to.have.status(200); });'
+              - 'pm.test("Tempo de resposta menor que 500ms", () => { pm.expect(pm.response.responseTime).to.be.below(500); });'
+              - 'pm.test("Header Content-Type deve ser application/json", () => { pm.expect(pm.response.headers.get("Content-Type")).to.include("application/json"); });'
+              - 'pm.test("Deve retornar status ok e service Pulsar Payments API", () => {'
+              - '    const jsonData = pm.response.json();'
+              - '    pm.expect(jsonData).to.have.property("status", "ok");'
+              - '    pm.expect(jsonData).to.have.property("service", "Pulsar Payments API");'
+              - '    pm.expect(jsonData).to.have.property("timestamp").that.is.a("string");'
+              - '});'
+      responses:
+        '200':
+          description: Serviço operacional
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                  - service
+                  - timestamp
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  service:
+                    type: string
+                    example: Pulsar Payments API
+                  timestamp:
+                    type: string
+                    format: date-time
+                    example: "2026-11-12T18:00:00.000Z"
+              examples:
+                HealthOk:
+                  summary: 200 OK - API Operacional
+                  value:
+                    status: ok
+                    service: Pulsar Payments API
+                    timestamp: "2026-11-12T18:00:00.000Z"
+
+  /auth/register:
+    post:
+      operationId: registerMerchant
+      tags: [Auth]
+      summary: Registra um novo lojista (Merchant) com senha criptografada via bcryptjs
+      description: |
+        Registra um novo lojista na plataforma, aplicando hash `bcryptjs` na senha e retornando um token JWT assinado.
+
+        ### Postman Test Script (`Tests`)
+        ```javascript
+        const statusCode = pm.response.code;
+        const jsonData = pm.response.json();
+
+        pm.test("Tempo de resposta menor que 1000ms e retorno em JSON", () => {
+            pm.expect(pm.response.responseTime).to.be.below(1000);
+            pm.expect(pm.response.headers.get("Content-Type")).to.include("application/json");
+        });
+
+        if (statusCode === 201) {
+            pm.test("201 Created - Lojista registrado com mensagem e contrato corretos", () => {
+                pm.response.to.have.status(201);
+                pm.expect(jsonData).to.have.property("message", "Lojista registrado com sucesso");
+                pm.expect(jsonData).to.have.property("token").that.is.a("string").and.is.not.empty;
+                pm.expect(jsonData).to.have.property("expiresIn", "1d");
+                pm.expect(jsonData.merchant).to.have.property("_id").that.is.a("string");
+                pm.expect(jsonData.merchant).to.have.property("email").that.is.a("string");
+            });
+
+            pm.test("Segurança - Não deve expor a senha (password) no payload de resposta", () => {
+                pm.expect(jsonData.merchant).to.not.have.property("password");
+            });
+
+            pm.collectionVariables.set("jwt_token", jsonData.token);
+            pm.collectionVariables.set("merchant_id", jsonData.merchant._id);
+            pm.collectionVariables.set("merchant_email", jsonData.merchant.email);
+        } else if (statusCode === 400) {
+            pm.test("400 Bad Request - Deve validar campos obrigatórios ou senha fraca", () => {
+                pm.response.to.have.status(400);
+                pm.expect(jsonData.error).to.be.oneOf(["VALIDATION_ERROR", "WEAK_PASSWORD", "INVALID_JSON"]);
+                pm.expect(jsonData.message).to.be.oneOf([
+                    "Os campos name, email e password são obrigatórios",
+                    "A senha deve possuir no mínimo 6 caracteres",
+                    "Payload JSON malformado no corpo da requisição"
+                ]);
+            });
+        } else if (statusCode === 409) {
+            pm.test("409 Conflict - Deve bloquear cadastro de e-mail duplicado", () => {
+                pm.response.to.have.status(409);
+                pm.expect(jsonData).to.have.property("error", "EMAIL_ALREADY_EXISTS");
+                pm.expect(jsonData).to.have.property("message", "Já existe um lojista cadastrado com este e-mail");
+            });
+        }
+        ```
+      x-postman-events:
+        - listen: test
+          script:
+            type: text/javascript
+            exec:
+              - 'const statusCode = pm.response.code;'
+              - 'const jsonData = pm.response.json();'
+              - 'pm.test("Tempo de resposta menor que 1000ms e Content-Type JSON", () => {'
+              - '    pm.expect(pm.response.responseTime).to.be.below(1000);'
+              - '    pm.expect(pm.response.headers.get("Content-Type")).to.include("application/json");'
+              - '});'
+              - 'if (statusCode === 201) {'
+              - '    pm.test("201 Created - Lojista registrado com sucesso", () => {'
+              - '        pm.response.to.have.status(201);'
+              - '        pm.expect(jsonData).to.have.property("message", "Lojista registrado com sucesso");'
+              - '        pm.expect(jsonData).to.have.property("token").that.is.a("string").and.is.not.empty;'
+              - '        pm.expect(jsonData).to.have.property("expiresIn").that.is.a("string");'
+              - '        pm.expect(jsonData.merchant).to.have.property("_id").that.is.a("string");'
+              - '        pm.expect(jsonData.merchant).to.not.have.property("password");'
+              - '    });'
+              - '    pm.collectionVariables.set("jwt_token", jsonData.token);'
+              - '    pm.collectionVariables.set("merchant_id", jsonData.merchant._id);'
+              - '    pm.collectionVariables.set("merchant_email", jsonData.merchant.email);'
+              - '} else if (statusCode === 400) {'
+              - '    pm.test("400 Bad Request - Campos obrigatórios ou senha fraca", () => {'
+              - '        pm.response.to.have.status(400);'
+              - '        pm.expect(jsonData.error).to.be.oneOf(["VALIDATION_ERROR", "WEAK_PASSWORD", "INVALID_JSON"]);'
+              - '        pm.expect(jsonData.message).to.be.oneOf(['
+              - '            "Os campos name, email e password são obrigatórios",'
+              - '            "A senha deve possuir no mínimo 6 caracteres",'
+              - '            "Payload JSON malformado no corpo da requisição"'
+              - '        ]);'
+              - '    });'
+              - '} else if (statusCode === 409) {'
+              - '    pm.test("409 Conflict - E-mail já cadastrado", () => {'
+              - '        pm.response.to.have.status(409);'
+              - '        pm.expect(jsonData).to.have.property("error", "EMAIL_ALREADY_EXISTS");'
+              - '        pm.expect(jsonData).to.have.property("message", "Já existe um lojista cadastrado com este e-mail");'
+              - '    });'
+              - '}'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            examples:
+              RegistroValido:
+                summary: Registro válido de lojista (201)
+                value:
+                  name: Loja Estrela LTDA
+                  email: financeiro@lojaestrela.com.br
+                  password: Senha@123
+                  document: "12.345.678/0001-99"
+              SenhaFraca:
+                summary: Senha com menos de 6 caracteres (400)
+                value:
+                  name: Loja Estrela LTDA
+                  email: financeiro@lojaestrela.com.br
+                  password: "123"
+              CamposAusentes:
+                summary: Campos obrigatórios ausentes (400)
+                value:
+                  name: Loja Estrela LTDA
+      responses:
+        '201':
+          description: Lojista registrado com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+              examples:
+                MerchantCreated:
+                  summary: 201 Created - Lojista registrado com sucesso
+                  value:
+                    message: Lojista registrado com sucesso
+                    merchant:
+                      _id: f47ac10b-58cc-4372-a567-0e02b2c3d479
+                      id: f47ac10b-58cc-4372-a567-0e02b2c3d479
+                      name: Loja Estrela LTDA
+                      email: financeiro@lojaestrela.com.br
+                      document: "12.345.678/0001-99"
+                      createdAt: "2026-11-12T18:00:00.000Z"
+                      updatedAt: "2026-11-12T18:00:00.000Z"
+                    token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJmNDdhYzEwYi01OGNjLTQzNzItYTU2Ny0wZTAyYjJjM2Q0NzkiLCJlbWFpbCI6ImZpbmFuY2Vpcm9AbG9qYWVzdHJlbGEuY29tLmJyIiwibmFtZSI6IkxvamEgRXN0cmVsYSBMVERBIn0.signature
+                    expiresIn: 1d
+        '400':
+          description: Dados obrigatórios ausentes ou senha fraca
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                MissingFields:
+                  summary: 400 Bad Request - Campos obrigatórios ausentes
+                  value:
+                    error: VALIDATION_ERROR
+                    message: Os campos name, email e password são obrigatórios
+                WeakPassword:
+                  summary: 400 Bad Request - Senha com menos de 6 caracteres
+                  value:
+                    error: WEAK_PASSWORD
+                    message: A senha deve possuir no mínimo 6 caracteres
+        '409':
+          description: E-mail já cadastrado para outro lojista
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                DuplicateEmail:
+                  summary: 409 Conflict - E-mail já cadastrado
+                  value:
+                    error: EMAIL_ALREADY_EXISTS
+                    message: Já existe um lojista cadastrado com este e-mail
+
+  /auth/login:
+    post:
+      operationId: loginMerchant
+      tags: [Auth]
+      summary: Autentica um lojista e retorna um token JWT assinado
+      description: |
+        Valida as credenciais (`email` e `password`) do lojista via `bcryptjs.compare` e emite um token Bearer JWT.
+
+        ### Postman Test Script (`Tests`)
+        ```javascript
+        const statusCode = pm.response.code;
+        const jsonData = pm.response.json();
+
+        pm.test("Tempo de resposta menor que 1000ms e Content-Type JSON", () => {
+            pm.expect(pm.response.responseTime).to.be.below(1000);
+            pm.expect(pm.response.headers.get("Content-Type")).to.include("application/json");
+        });
+
+        if (statusCode === 200) {
+            pm.test("200 OK - Autenticação realizada com sucesso e JWT emitido", () => {
+                pm.response.to.have.status(200);
+                pm.expect(jsonData).to.have.property("message", "Autenticação realizada com sucesso");
+                pm.expect(jsonData).to.have.property("type", "Bearer");
+                pm.expect(jsonData).to.have.property("token").that.is.a("string").and.is.not.empty;
+                pm.expect(jsonData).to.have.property("expiresIn", "1d");
+                pm.expect(jsonData.merchant).to.have.property("_id");
+                pm.expect(jsonData.merchant).to.not.have.property("password");
+            });
+
+            pm.collectionVariables.set("jwt_token", jsonData.token);
+            pm.collectionVariables.set("merchant_id", jsonData.merchant._id);
+        } else if (statusCode === 400) {
+            pm.test("400 Bad Request - E-mail ou senha não informados", () => {
+                pm.response.to.have.status(400);
+                pm.expect(jsonData).to.have.property("error", "VALIDATION_ERROR");
+                pm.expect(jsonData).to.have.property("message", "Os campos email e password são obrigatórios para autenticação");
+            });
+        } else if (statusCode === 401) {
+            pm.test("401 Unauthorized - Credenciais inválidas", () => {
+                pm.response.to.have.status(401);
+                pm.expect(jsonData).to.have.property("error", "INVALID_CREDENTIALS");
+                pm.expect(jsonData).to.have.property("message", "Credenciais inválidas: e-mail ou senha incorretos");
+            });
+        }
+        ```
+      x-postman-events:
+        - listen: test
+          script:
+            type: text/javascript
+            exec:
+              - 'const statusCode = pm.response.code;'
+              - 'const jsonData = pm.response.json();'
+              - 'pm.test("Tempo de resposta menor que 1000ms e Content-Type JSON", () => {'
+              - '    pm.expect(pm.response.responseTime).to.be.below(1000);'
+              - '    pm.expect(pm.response.headers.get("Content-Type")).to.include("application/json");'
+              - '});'
+              - 'if (statusCode === 200) {'
+              - '    pm.test("200 OK - Autenticação realizada com sucesso e JWT emitido", () => {'
+              - '        pm.response.to.have.status(200);'
+              - '        pm.expect(jsonData).to.have.property("message", "Autenticação realizada com sucesso");'
+              - '        pm.expect(jsonData).to.have.property("type", "Bearer");'
+              - '        pm.expect(jsonData).to.have.property("token").that.is.a("string").and.is.not.empty;'
+              - '        pm.expect(jsonData.merchant).to.not.have.property("password");'
+              - '    });'
+              - '    pm.collectionVariables.set("jwt_token", jsonData.token);'
+              - '    pm.collectionVariables.set("merchant_id", jsonData.merchant._id);'
+              - '} else if (statusCode === 400) {'
+              - '    pm.test("400 Bad Request - Campos obrigatórios ausentes", () => {'
+              - '        pm.response.to.have.status(400);'
+              - '        pm.expect(jsonData).to.have.property("error", "VALIDATION_ERROR");'
+              - '        pm.expect(jsonData).to.have.property("message", "Os campos email e password são obrigatórios para autenticação");'
+              - '    });'
+              - '} else if (statusCode === 401) {'
+              - '    pm.test("401 Unauthorized - Credenciais inválidas", () => {'
+              - '        pm.response.to.have.status(401);'
+              - '        pm.expect(jsonData).to.have.property("error", "INVALID_CREDENTIALS");'
+              - '        pm.expect(jsonData).to.have.property("message", "Credenciais inválidas: e-mail ou senha incorretos");'
+              - '    });'
+              - '}'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            examples:
+              LoginValido:
+                summary: Credenciais válidas (200)
+                value:
+                  email: financeiro@lojaestrela.com.br
+                  password: Senha@123
+              CredenciaisInvalidas:
+                summary: Senha incorreta ou e-mail inexistente (401)
+                value:
+                  email: financeiro@lojaestrela.com.br
+                  password: SenhaIncorreta999
+              CamposAusentes:
+                summary: Senha não informada (400)
+                value:
+                  email: financeiro@lojaestrela.com.br
+      responses:
+        '200':
+          description: Login realizado com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+              examples:
+                LoginSuccess:
+                  summary: 200 OK - Autenticação realizada com sucesso
+                  value:
+                    message: Autenticação realizada com sucesso
+                    token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJmNDdhYzEwYi01OGNjLTQzNzItYTU2Ny0wZTAyYjJjM2Q0NzkiLCJlbWFpbCI6ImZpbmFuY2Vpcm9AbG9qYWVzdHJlbGEuY29tLmJyIiwibmFtZSI6IkxvamEgRXN0cmVsYSBMVERBIn0.signature
+                    type: Bearer
+                    expiresIn: 1d
+                    merchant:
+                      _id: f47ac10b-58cc-4372-a567-0e02b2c3d479
+                      id: f47ac10b-58cc-4372-a567-0e02b2c3d479
+                      name: Loja Estrela LTDA
+                      email: financeiro@lojaestrela.com.br
+                      document: "12.345.678/0001-99"
+                      createdAt: "2026-11-12T18:00:00.000Z"
+                      updatedAt: "2026-11-12T18:00:00.000Z"
+        '400':
+          description: Campos email ou password ausentes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                MissingCredentials:
+                  summary: 400 Bad Request - Campos ausentes
+                  value:
+                    error: VALIDATION_ERROR
+                    message: Os campos email e password são obrigatórios para autenticação
+        '401':
+          description: Credenciais inválidas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                InvalidCredentials:
+                  summary: 401 Unauthorized - Credenciais inválidas
+                  value:
+                    error: INVALID_CREDENTIALS
+                    message: "Credenciais inválidas: e-mail ou senha incorretos"
+
+  /accounts:
+    post:
+      operationId: createAccount
+      tags: [Accounts]
+      summary: Cria uma nova conta/carteira vinculada ao lojista autenticado
+      description: |
+        Cria uma conta/carteira financeira vinculada ao lojista autenticado na moeda `BRL`.
+        Impede a criação de contas com saldo inicial negativo (`422 NEGATIVE_BALANCE_NOT_ALLOWED`) ou moeda diferente de `BRL` (`422 UNSUPPORTED_CURRENCY`).
+
+        ### Postman Test Script (`Tests`)
+        ```javascript
+        const statusCode = pm.response.code;
+        const jsonData = pm.response.json();
+
+        pm.test("Tempo de resposta menor que 1000ms e Content-Type JSON", () => {
+            pm.expect(pm.response.responseTime).to.be.below(1000);
+            pm.expect(pm.response.headers.get("Content-Type")).to.include("application/json");
+        });
+
+        if (statusCode === 201) {
+            pm.test("201 Created - Conta criada com sucesso, moeda BRL e saldo >= 0", () => {
+                pm.response.to.have.status(201);
+                pm.expect(jsonData).to.have.property("message", "Conta criada com sucesso");
+                pm.expect(jsonData.account).to.have.property("_id").that.is.a("string");
+                pm.expect(jsonData.account).to.have.property("currency", "BRL");
+                pm.expect(jsonData.account).to.have.property("status", "ACTIVE");
+                pm.expect(jsonData.account.balance).to.be.a("number").and.to.be.at.least(0);
+            });
+
+            pm.collectionVariables.set("account_id", jsonData.account._id);
+        } else if (statusCode === 400) {
+            pm.test("400 Bad Request - Saldo inicial não numérico", () => {
+                pm.response.to.have.status(400);
+                pm.expect(jsonData).to.have.property("error", "INVALID_BALANCE");
+                pm.expect(jsonData).to.have.property("message", "O saldo inicial (initialBalance) deve ser um valor numérico válido");
+            });
+        } else if (statusCode === 401) {
+            pm.test("401 Unauthorized - Token JWT ausente ou inválido", () => {
+                pm.response.to.have.status(401);
+                pm.expect(jsonData).to.have.property("error", "UNAUTHORIZED");
+                pm.expect(jsonData.message).to.be.oneOf([
+                    "Token de autenticação ausente ou malformado. Utilize o formato Authorization: Bearer <token>",
+                    "Token JWT não informado no header Authorization",
+                    "Token JWT inválido ou expirado"
+                ]);
+            });
+        } else if (statusCode === 422) {
+            pm.test("422 Unprocessable Entity - Violação de regra financeira (saldo negativo ou moeda inválida)", () => {
+                pm.response.to.have.status(422);
+                pm.expect(jsonData.error).to.be.oneOf(["NEGATIVE_BALANCE_NOT_ALLOWED", "UNSUPPORTED_CURRENCY"]);
+                pm.expect(jsonData.message).to.be.oneOf([
+                    "Operação não permitida: o saldo da conta não pode ser negativo",
+                    "Moeda não suportada. O Pulsar Payments opera exclusivamente com BRL"
+                ]);
+            });
+        }
+        ```
+      security:
+        - bearerAuth: []
+      x-postman-events:
+        - listen: test
+          script:
+            type: text/javascript
+            exec:
+              - 'const statusCode = pm.response.code;'
+              - 'const jsonData = pm.response.json();'
+              - 'pm.test("Tempo de resposta menor que 1000ms e Content-Type JSON", () => {'
+              - '    pm.expect(pm.response.responseTime).to.be.below(1000);'
+              - '    pm.expect(pm.response.headers.get("Content-Type")).to.include("application/json");'
+              - '});'
+              - 'if (statusCode === 201) {'
+              - '    pm.test("201 Created - Conta criada com sucesso em BRL e saldo não negativo", () => {'
+              - '        pm.response.to.have.status(201);'
+              - '        pm.expect(jsonData).to.have.property("message", "Conta criada com sucesso");'
+              - '        pm.expect(jsonData.account).to.have.property("_id").that.is.a("string");'
+              - '        pm.expect(jsonData.account).to.have.property("currency", "BRL");'
+              - '        pm.expect(jsonData.account).to.have.property("status", "ACTIVE");'
+              - '        pm.expect(jsonData.account.balance).to.be.a("number").and.to.be.at.least(0);'
+              - '    });'
+              - '    pm.collectionVariables.set("account_id", jsonData.account._id);'
+              - '} else if (statusCode === 400) {'
+              - '    pm.test("400 Bad Request - Saldo inicial inválido", () => {'
+              - '        pm.response.to.have.status(400);'
+              - '        pm.expect(jsonData).to.have.property("error", "INVALID_BALANCE");'
+              - '        pm.expect(jsonData).to.have.property("message", "O saldo inicial (initialBalance) deve ser um valor numérico válido");'
+              - '    });'
+              - '} else if (statusCode === 401) {'
+              - '    pm.test("401 Unauthorized - Token JWT ausente ou inválido", () => {'
+              - '        pm.response.to.have.status(401);'
+              - '        pm.expect(jsonData).to.have.property("error", "UNAUTHORIZED");'
+              - '    });'
+              - '} else if (statusCode === 422) {'
+              - '    pm.test("422 Unprocessable Entity - Saldo negativo ou moeda não suportada", () => {'
+              - '        pm.response.to.have.status(422);'
+              - '        pm.expect(jsonData.error).to.be.oneOf(["NEGATIVE_BALANCE_NOT_ALLOWED", "UNSUPPORTED_CURRENCY"]);'
+              - '        pm.expect(jsonData.message).to.be.oneOf(['
+              - '            "Operação não permitida: o saldo da conta não pode ser negativo",'
+              - '            "Moeda não suportada. O Pulsar Payments opera exclusivamente com BRL"'
+              - '        ]);'
+              - '    });'
+              - '}'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAccountRequest'
+            examples:
+              ContaValida:
+                summary: Criação de conta com saldo positivo (201)
+                value:
+                  name: Carteira Principal BRL
+                  initialBalance: 1000.00
+                  currency: BRL
+              SaldoNegativo:
+                summary: Tentativa de criar conta com saldo negativo (422)
+                value:
+                  name: Carteira Inválida
+                  initialBalance: -50.00
+                  currency: BRL
+              MoedaInvalida:
+                summary: Tentativa de criar conta em moeda não suportada (422)
+                value:
+                  name: Carteira Internacional
+                  initialBalance: 100.00
+                  currency: USD
+      responses:
+        '201':
+          description: Conta criada com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Conta criada com sucesso
+                  account:
+                    $ref: '#/components/schemas/Account'
+              examples:
+                AccountCreated:
+                  summary: 201 Created - Conta criada com sucesso
+                  value:
+                    message: Conta criada com sucesso
+                    account:
+                      _id: a12bc34d-56ef-4789-8012-3456789abcde
+                      id: a12bc34d-56ef-4789-8012-3456789abcde
+                      merchantId: f47ac10b-58cc-4372-a567-0e02b2c3d479
+                      name: Carteira Principal BRL
+                      currency: BRL
+                      balance: 1000.00
+                      status: ACTIVE
+                      createdAt: "2026-11-12T18:00:00.000Z"
+                      updatedAt: "2026-11-12T18:00:00.000Z"
+        '400':
+          description: Formato de saldo inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                InvalidBalance:
+                  summary: 400 Bad Request - Saldo inicial não numérico
+                  value:
+                    error: INVALID_BALANCE
+                    message: O saldo inicial (initialBalance) deve ser um valor numérico válido
+        '401':
+          description: Token JWT ausente ou inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                MissingToken:
+                  summary: 401 Unauthorized - Header Authorization ausente
+                  value:
+                    error: UNAUTHORIZED
+                    message: "Token de autenticação ausente ou malformado. Utilize o formato Authorization: Bearer <token>"
+                InvalidToken:
+                  summary: 401 Unauthorized - Token expirado ou inválido
+                  value:
+                    error: UNAUTHORIZED
+                    message: Token JWT inválido ou expirado
+        '422':
+          description: Tentativa de criar conta com saldo inicial negativo ou moeda não suportada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                NegativeBalance:
+                  summary: 422 Unprocessable Entity - Saldo inicial negativo
+                  value:
+                    error: NEGATIVE_BALANCE_NOT_ALLOWED
+                    message: "Operação não permitida: o saldo da conta não pode ser negativo"
+                UnsupportedCurrency:
+                  summary: 422 Unprocessable Entity - Moeda diferente de BRL
+                  value:
+                    error: UNSUPPORTED_CURRENCY
+                    message: Moeda não suportada. O Pulsar Payments opera exclusivamente com BRL
+
+    get:
+      operationId: listAccounts
+      tags: [Accounts]
+      summary: Lista todas as contas/carteiras do lojista autenticado
+      description: |
+        Retorna a lista de carteiras financeiras pertencentes exclusivamente ao lojista autenticado.
+
+        ### Postman Test Script (`Tests`)
+        ```javascript
+        const statusCode = pm.response.code;
+        const jsonData = pm.response.json();
+
+        pm.test("Tempo de resposta menor que 1000ms e Content-Type JSON", () => {
+            pm.expect(pm.response.responseTime).to.be.below(1000);
+            pm.expect(pm.response.headers.get("Content-Type")).to.include("application/json");
+        });
+
+        if (statusCode === 200) {
+            pm.test("200 OK - Deve retornar total e array de accounts", () => {
+                pm.response.to.have.status(200);
+                pm.expect(jsonData).to.have.property("total").that.is.a("number");
+                pm.expect(jsonData).to.have.property("accounts").that.is.an("array");
+                pm.expect(jsonData.accounts.length).to.eql(jsonData.total);
+            });
+
+            if (jsonData.accounts.length > 0) {
+                pm.collectionVariables.set("account_id", jsonData.accounts[0]._id);
+            }
+        } else if (statusCode === 401) {
+            pm.test("401 Unauthorized - Token JWT ausente ou inválido", () => {
+                pm.response.to.have.status(401);
+                pm.expect(jsonData).to.have.property("error", "UNAUTHORIZED");
+            });
+        }
+        ```
+      security:
+        - bearerAuth: []
+      x-postman-events:
+        - listen: test
+          script:
+            type: text/javascript
+            exec:
+              - 'const statusCode = pm.response.code;'
+              - 'const jsonData = pm.response.json();'
+              - 'pm.test("Tempo de resposta menor que 1000ms e Content-Type JSON", () => {'
+              - '    pm.expect(pm.response.responseTime).to.be.below(1000);'
+              - '    pm.expect(pm.response.headers.get("Content-Type")).to.include("application/json");'
+              - '});'
+              - 'if (statusCode === 200) {'
+              - '    pm.test("200 OK - Deve retornar total e lista de accounts", () => {'
+              - '        pm.response.to.have.status(200);'
+              - '        pm.expect(jsonData).to.have.property("total").that.is.a("number");'
+              - '        pm.expect(jsonData).to.have.property("accounts").that.is.an("array");'
+              - '        pm.expect(jsonData.accounts.length).to.eql(jsonData.total);'
+              - '    });'
+              - '    if (jsonData.accounts.length > 0) {'
+              - '        pm.collectionVariables.set("account_id", jsonData.accounts[0]._id);'
+              - '    }'
+              - '} else if (statusCode === 401) {'
+              - '    pm.test("401 Unauthorized - Token JWT ausente ou inválido", () => {'
+              - '        pm.response.to.have.status(401);'
+              - '        pm.expect(jsonData).to.have.property("error", "UNAUTHORIZED");'
+              - '    });'
+              - '}'
+      responses:
+        '200':
+          description: Lista de contas retornada com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                    example: 1
+                  accounts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Account'
+              examples:
+                AccountsList:
+                  summary: 200 OK - Contas listadas com sucesso
+                  value:
+                    total: 1
+                    accounts:
+                      - _id: a12bc34d-56ef-4789-8012-3456789abcde
+                        id: a12bc34d-56ef-4789-8012-3456789abcde
+                        merchantId: f47ac10b-58cc-4372-a567-0e02b2c3d479
+                        name: Carteira Principal BRL
+                        currency: BRL
+                        balance: 1000.00
+                        status: ACTIVE
+                        createdAt: "2026-11-12T18:00:00.000Z"
+                        updatedAt: "2026-11-12T18:00:00.000Z"
+        '401':
+          description: Token JWT ausente ou inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                Unauthorized:
+                  summary: 401 Unauthorized - Token ausente ou inválido
+                  value:
+                    error: UNAUTHORIZED
+                    message: "Token de autenticação ausente ou malformado. Utilize o formato Authorization: Bearer <token>"
+
+  /accounts/{id}:
+    get:
+      operationId: getAccountById
+      tags: [Accounts]
+      summary: Consulta detalhes e saldo atualizado de uma conta específica
+      description: |
+        Retorna os dados e o saldo atualizado de uma conta pelo seu identificador (`id`).
+
+        ### Postman Test Script (`Tests`)
+        ```javascript
+        const statusCode = pm.response.code;
+        const jsonData = pm.response.json();
+
+        pm.test("Tempo de resposta menor que 1000ms e Content-Type JSON", () => {
+            pm.expect(pm.response.responseTime).to.be.below(1000);
+            pm.expect(pm.response.headers.get("Content-Type")).to.include("application/json");
+        });
+
+        if (statusCode === 200) {
+            pm.test("200 OK - Conta encontrada com saldo não negativo e moeda BRL", () => {
+                pm.response.to.have.status(200);
+                pm.expect(jsonData).to.have.property("account").that.is.an("object");
+                pm.expect(jsonData.account).to.have.property("_id");
+                pm.expect(jsonData.account).to.have.property("currency", "BRL");
+                pm.expect(jsonData.account.balance).to.be.a("number").and.to.be.at.least(0);
+            });
+        } else if (statusCode === 404) {
+            pm.test("404 Not Found - Conta inexistente ou de outro lojista", () => {
+                pm.response.to.have.status(404);
+                pm.expect(jsonData).to.have.property("error", "ACCOUNT_NOT_FOUND");
+                pm.expect(jsonData).to.have.property("message", "Conta não encontrada para o lojista autenticado");
+            });
+        } else if (statusCode === 401) {
+            pm.test("401 Unauthorized - Token JWT ausente ou inválido", () => {
+                pm.response.to.have.status(401);
+                pm.expect(jsonData).to.have.property("error", "UNAUTHORIZED");
+            });
+        }
+        ```
+      security:
+        - bearerAuth: []
+      x-postman-events:
+        - listen: test
+          script:
+            type: text/javascript
+            exec:
+              - 'const statusCode = pm.response.code;'
+              - 'const jsonData = pm.response.json();'
+              - 'pm.test("Tempo de resposta menor que 1000ms e Content-Type JSON", () => {'
+              - '    pm.expect(pm.response.responseTime).to.be.below(1000);'
+              - '    pm.expect(pm.response.headers.get("Content-Type")).to.include("application/json");'
+              - '});'
+              - 'if (statusCode === 200) {'
+              - '    pm.test("200 OK - Conta encontrada com sucesso", () => {'
+              - '        pm.response.to.have.status(200);'
+              - '        pm.expect(jsonData).to.have.property("account").that.is.an("object");'
+              - '        pm.expect(jsonData.account).to.have.property("currency", "BRL");'
+              - '        pm.expect(jsonData.account.balance).to.be.a("number").and.to.be.at.least(0);'
+              - '    });'
+              - '} else if (statusCode === 404) {'
+              - '    pm.test("404 Not Found - Conta não encontrada", () => {'
+              - '        pm.response.to.have.status(404);'
+              - '        pm.expect(jsonData).to.have.property("error", "ACCOUNT_NOT_FOUND");'
+              - '        pm.expect(jsonData).to.have.property("message", "Conta não encontrada para o lojista autenticado");'
+              - '    });'
+              - '} else if (statusCode === 401) {'
+              - '    pm.test("401 Unauthorized - Token JWT ausente ou inválido", () => {'
+              - '        pm.response.to.have.status(401);'
+              - '        pm.expect(jsonData).to.have.property("error", "UNAUTHORIZED");'
+              - '    });'
+              - '}'
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            example: a12bc34d-56ef-4789-8012-3456789abcde
+          description: ID da conta (`{{account_id}}`)
+      responses:
+        '200':
+          description: Conta encontrada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  account:
+                    $ref: '#/components/schemas/Account'
+              examples:
+                AccountDetails:
+                  summary: 200 OK - Detalhes da conta
+                  value:
+                    account:
+                      _id: a12bc34d-56ef-4789-8012-3456789abcde
+                      id: a12bc34d-56ef-4789-8012-3456789abcde
+                      merchantId: f47ac10b-58cc-4372-a567-0e02b2c3d479
+                      name: Carteira Principal BRL
+                      currency: BRL
+                      balance: 1000.00
+                      status: ACTIVE
+                      createdAt: "2026-11-12T18:00:00.000Z"
+                      updatedAt: "2026-11-12T18:00:00.000Z"
+        '401':
+          description: Token JWT ausente ou inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                Unauthorized:
+                  summary: 401 Unauthorized - Token ausente ou inválido
+                  value:
+                    error: UNAUTHORIZED
+                    message: "Token de autenticação ausente ou malformado. Utilize o formato Authorization: Bearer <token>"
+        '404':
+          description: Conta não encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                AccountNotFound:
+                  summary: 404 Not Found - Conta inexistente
+                  value:
+                    error: ACCOUNT_NOT_FOUND
+                    message: Conta não encontrada para o lojista autenticado
+
+  /transactions:
+    post:
+      operationId: createTransaction
+      tags: [Transactions]
+      summary: Cria uma nova cobrança ou pagamento com suporte a Idempotency-Key
+      description: |
+        Processa uma movimentação financeira (`CHARGE`, `CREDIT`, `PAYMENT`, `DEBIT`) com suporte ao header `Idempotency-Key`.
+        - **Primeira execução:** retorna `201 Created`, `idempotentReplayed: false` e atualiza o saldo da carteira (quando `status: "PAID"`).
+        - **Execução repetida com mesma `Idempotency-Key`:** retorna `200 OK`, `idempotentReplayed: true` e preserva a transação original sem duplicar o impacto financeiro.
+
+        ### Postman Test Script (`Tests`)
+        ```javascript
+        const statusCode = pm.response.code;
+        const jsonData = pm.response.json();
+
+        pm.test("Tempo de resposta menor que 1000ms e Content-Type JSON", () => {
+            pm.expect(pm.response.responseTime).to.be.below(1000);
+            pm.expect(pm.response.headers.get("Content-Type")).to.include("application/json");
+        });
+
+        if (statusCode === 201) {
+            pm.test("201 Created - Nova transação processada com sucesso", () => {
+                pm.response.to.have.status(201);
+                pm.expect(jsonData).to.have.property("message", "Transação processada com sucesso");
+                pm.expect(jsonData).to.have.property("idempotentReplayed", false);
+                pm.expect(jsonData.transaction).to.have.property("_id").that.is.a("string");
+                pm.expect(jsonData.transaction.status).to.be.oneOf(["PENDING", "PAID", "FAILED"]);
+                pm.expect(jsonData.accountBalance).to.be.a("number").and.to.be.at.least(0);
+            });
+
+            pm.collectionVariables.set("transaction_id", jsonData.transaction._id);
+        } else if (statusCode === 200) {
+            pm.test("200 OK - Replay idempotente sem duplicar movimentação financeira", () => {
+                pm.response.to.have.status(200);
+                pm.expect(jsonData).to.have.property("message", "Requisição idempotente: retornando transação processada anteriormente");
+                pm.expect(jsonData).to.have.property("idempotentReplayed", true);
+                pm.expect(jsonData.transaction).to.have.property("_id");
+            });
+        } else if (statusCode === 400) {
+            pm.test("400 Bad Request - Erro de validação de parâmetros", () => {
+                pm.response.to.have.status(400);
+                pm.expect(jsonData.error).to.be.oneOf([
+                    "MISSING_ACCOUNT_ID",
+                    "INVALID_AMOUNT",
+                    "INVALID_TRANSACTION_TYPE",
+                    "INVALID_TRANSACTION_STATUS"
+                ]);
+            });
+        } else if (statusCode === 404) {
+            pm.test("404 Not Found - Conta informada não encontrada", () => {
+                pm.response.to.have.status(404);
+                pm.expect(jsonData).to.have.property("error", "ACCOUNT_NOT_FOUND");
+                pm.expect(jsonData).to.have.property("message", "Conta informada não encontrada para o lojista autenticado");
+            });
+        } else if (statusCode === 422) {
+            pm.test("422 Unprocessable Entity - Violação de regra financeira (saldo insuficiente, valor <= 0 ou status inicial REFUNDED)", () => {
+                pm.response.to.have.status(422);
+                pm.expect(jsonData.error).to.be.oneOf([
+                    "INSUFFICIENT_FUNDS",
+                    "INVALID_TRANSACTION_AMOUNT",
+                    "INVALID_INITIAL_STATUS",
+                    "ACCOUNT_BLOCKED"
+                ]);
+            });
+        } else if (statusCode === 401) {
+            pm.test("401 Unauthorized - Token JWT ausente ou inválido", () => {
+                pm.response.to.have.status(401);
+                pm.expect(jsonData).to.have.property("error", "UNAUTHORIZED");
+            });
+        }
+        ```
+      security:
+        - bearerAuth: []
+      x-postman-events:
+        - listen: test
+          script:
+            type: text/javascript
+            exec:
+              - 'const statusCode = pm.response.code;'
+              - 'const jsonData = pm.response.json();'
+              - 'pm.test("Tempo de resposta menor que 1000ms e Content-Type JSON", () => {'
+              - '    pm.expect(pm.response.responseTime).to.be.below(1000);'
+              - '    pm.expect(pm.response.headers.get("Content-Type")).to.include("application/json");'
+              - '});'
+              - 'if (statusCode === 201) {'
+              - '    pm.test("201 Created - Transação processada com sucesso", () => {'
+              - '        pm.response.to.have.status(201);'
+              - '        pm.expect(jsonData).to.have.property("message", "Transação processada com sucesso");'
+              - '        pm.expect(jsonData).to.have.property("idempotentReplayed", false);'
+              - '        pm.expect(jsonData.transaction).to.have.property("_id").that.is.a("string");'
+              - '        pm.expect(jsonData.accountBalance).to.be.a("number").and.to.be.at.least(0);'
+              - '    });'
+              - '    pm.collectionVariables.set("transaction_id", jsonData.transaction._id);'
+              - '} else if (statusCode === 200) {'
+              - '    pm.test("200 OK - Requisição idempotente sem duplicar saldo", () => {'
+              - '        pm.response.to.have.status(200);'
+              - '        pm.expect(jsonData).to.have.property("message", "Requisição idempotente: retornando transação processada anteriormente");'
+              - '        pm.expect(jsonData).to.have.property("idempotentReplayed", true);'
+              - '    });'
+              - '} else if (statusCode === 400) {'
+              - '    pm.test("400 Bad Request - Validação de campos obrigatórios", () => {'
+              - '        pm.response.to.have.status(400);'
+              - '        pm.expect(jsonData.error).to.be.oneOf(["MISSING_ACCOUNT_ID", "INVALID_AMOUNT", "INVALID_TRANSACTION_TYPE", "INVALID_TRANSACTION_STATUS"]);'
+              - '    });'
+              - '} else if (statusCode === 404) {'
+              - '    pm.test("404 Not Found - Conta não encontrada", () => {'
+              - '        pm.response.to.have.status(404);'
+              - '        pm.expect(jsonData).to.have.property("error", "ACCOUNT_NOT_FOUND");'
+              - '        pm.expect(jsonData).to.have.property("message", "Conta informada não encontrada para o lojista autenticado");'
+              - '    });'
+              - '} else if (statusCode === 422) {'
+              - '    pm.test("422 Unprocessable Entity - Regra financeira violada", () => {'
+              - '        pm.response.to.have.status(422);'
+              - '        pm.expect(jsonData.error).to.be.oneOf(["INSUFFICIENT_FUNDS", "INVALID_TRANSACTION_AMOUNT", "INVALID_INITIAL_STATUS", "ACCOUNT_BLOCKED"]);'
+              - '    });'
+              - '} else if (statusCode === 401) {'
+              - '    pm.test("401 Unauthorized - Token JWT ausente ou inválido", () => {'
+              - '        pm.response.to.have.status(401);'
+              - '        pm.expect(jsonData).to.have.property("error", "UNAUTHORIZED");'
+              - '    });'
+              - '}'
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTransactionRequest'
+            examples:
+              CobrancaPaga:
+                summary: Cobrança paga (CHARGE + PAID) - Credita saldo (201)
+                value:
+                  accountId: a12bc34d-56ef-4789-8012-3456789abcde
+                  type: CHARGE
+                  amount: 250.00
+                  status: PAID
+                  description: Pedido #9841 - Assinatura Anual
+                  metadata:
+                    orderId: "9841"
+                    paymentMethod: PIX
+              PagamentoDebito:
+                summary: Pagamento de saída (PAYMENT + PAID) - Debita saldo (201 ou 422 se sem saldo)
+                value:
+                  accountId: a12bc34d-56ef-4789-8012-3456789abcde
+                  type: PAYMENT
+                  amount: 100.00
+                  status: PAID
+                  description: Liquidação fornecedor #302
+              TransacaoPendente:
+                summary: Cobrança pendente (PENDING) - Não altera saldo (201)
+                value:
+                  accountId: a12bc34d-56ef-4789-8012-3456789abcde
+                  type: CHARGE
+                  amount: 180.00
+                  status: PENDING
+                  description: Boleto aguardando compensação
+              SaldoInsuficiente:
+                summary: Débito acima do saldo disponível (422 INSUFFICIENT_FUNDS)
+                value:
+                  accountId: a12bc34d-56ef-4789-8012-3456789abcde
+                  type: DEBIT
+                  amount: 999999.99
+                  status: PAID
+                  description: Tentativa de saque acima do limite
+      responses:
+        '201':
+          description: Nova transação processada e registrada com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Transação processada com sucesso
+                  transaction:
+                    $ref: '#/components/schemas/Transaction'
+                  accountBalance:
+                    type: number
+                    example: 1250.00
+                  idempotentReplayed:
+                    type: boolean
+                    example: false
+                  webhookDeliveries:
+                    type: array
+                    items:
+                      type: object
+              examples:
+                TransactionCreated:
+                  summary: 201 Created - Transação processada com sucesso
+                  value:
+                    message: Transação processada com sucesso
+                    transaction:
+                      _id: c98de76f-54ba-4321-9876-543210fedcba
+                      id: c98de76f-54ba-4321-9876-543210fedcba
+                      merchantId: f47ac10b-58cc-4372-a567-0e02b2c3d479
+                      accountId: a12bc34d-56ef-4789-8012-3456789abcde
+                      type: CHARGE
+                      amount: 250.00
+                      currency: BRL
+                      status: PAID
+                      description: Pedido #9841 - Assinatura Anual
+                      idempotencyKey: idem-key-2026-0001
+                      refundReason: null
+                      refundedAt: null
+                      metadata:
+                        orderId: "9841"
+                        paymentMethod: PIX
+                      createdAt: "2026-11-12T18:00:00.000Z"
+                      updatedAt: "2026-11-12T18:00:00.000Z"
+                    accountBalance: 1250.00
+                    idempotentReplayed: false
+                    webhookDeliveries: []
+        '200':
+          description: Requisição repetida com mesma Idempotency-Key (retorna transação original sem duplicar saldo)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Requisição idempotente: retornando transação processada anteriormente"
+                  transaction:
+                    $ref: '#/components/schemas/Transaction'
+                  idempotentReplayed:
+                    type: boolean
+                    example: true
+                  webhookDeliveries:
+                    type: array
+                    items:
+                      type: object
+              examples:
+                IdempotentReplay:
+                  summary: 200 OK - Retorno idempotente sem duplicar movimentação
+                  value:
+                    message: "Requisição idempotente: retornando transação processada anteriormente"
+                    transaction:
+                      _id: c98de76f-54ba-4321-9876-543210fedcba
+                      id: c98de76f-54ba-4321-9876-543210fedcba
+                      merchantId: f47ac10b-58cc-4372-a567-0e02b2c3d479
+                      accountId: a12bc34d-56ef-4789-8012-3456789abcde
+                      type: CHARGE
+                      amount: 250.00
+                      currency: BRL
+                      status: PAID
+                      description: Pedido #9841 - Assinatura Anual
+                      idempotencyKey: idem-key-2026-0001
+                      refundReason: null
+                      refundedAt: null
+                      metadata:
+                        orderId: "9841"
+                        paymentMethod: PIX
+                      createdAt: "2026-11-12T18:00:00.000Z"
+                      updatedAt: "2026-11-12T18:00:00.000Z"
+                    idempotentReplayed: true
+                    webhookDeliveries: []
+        '400':
+          description: Parâmetros obrigatórios ausentes ou inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                MissingAccountId:
+                  summary: 400 Bad Request - accountId ausente
+                  value:
+                    error: MISSING_ACCOUNT_ID
+                    message: O campo accountId é obrigatório para criar uma transação
+                InvalidAmount:
+                  summary: 400 Bad Request - Valor não numérico
+                  value:
+                    error: INVALID_AMOUNT
+                    message: O valor da transação (amount) é obrigatório e deve ser numérico
+                InvalidType:
+                  summary: 400 Bad Request - Tipo de transação inválido
+                  value:
+                    error: INVALID_TRANSACTION_TYPE
+                    message: "Tipo de transação inválido (PIX). Utilize: CHARGE, PAYMENT, CREDIT, DEBIT"
+        '401':
+          description: Token JWT ausente ou inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                Unauthorized:
+                  summary: 401 Unauthorized - Token ausente ou inválido
+                  value:
+                    error: UNAUTHORIZED
+                    message: "Token de autenticação ausente ou malformado. Utilize o formato Authorization: Bearer <token>"
+        '404':
+          description: Conta informada não encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                AccountNotFound:
+                  summary: 404 Not Found - Conta informada não existe
+                  value:
+                    error: ACCOUNT_NOT_FOUND
+                    message: Conta informada não encontrada para o lojista autenticado
+        '422':
+          description: Regra de negócio violada (saldo insuficiente, valor <= 0 ou status inicial inválido)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                InsufficientFunds:
+                  summary: 422 Unprocessable Entity - Saldo insuficiente
+                  value:
+                    error: INSUFFICIENT_FUNDS
+                    message: Saldo insuficiente na conta para realizar esta operação (saldo não pode ficar negativo)
+                NonPositiveAmount:
+                  summary: 422 Unprocessable Entity - Valor menor ou igual a zero
+                  value:
+                    error: INVALID_TRANSACTION_AMOUNT
+                    message: O valor da transação (amount) deve ser maior que zero
+                InvalidInitialStatus:
+                  summary: 422 Unprocessable Entity - Criação direta como REFUNDED
+                  value:
+                    error: INVALID_INITIAL_STATUS
+                    message: Não é permitido criar uma transação diretamente com o status REFUNDED. Utilize o endpoint de estorno (/refund)
+
+    get:
+      operationId: listTransactions
+      tags: [Transactions]
+      summary: Lista as transações do lojista autenticado
+      description: |
+        Lista todas as transações do lojista autenticado, permitindo filtragem opcional por `accountId`, `status` e `type`.
+
+        ### Postman Test Script (`Tests`)
+        ```javascript
+        const statusCode = pm.response.code;
+        const jsonData = pm.response.json();
+
+        pm.test("Tempo de resposta menor que 1000ms e Content-Type JSON", () => {
+            pm.expect(pm.response.responseTime).to.be.below(1000);
+            pm.expect(pm.response.headers.get("Content-Type")).to.include("application/json");
+        });
+
+        if (statusCode === 200) {
+            pm.test("200 OK - Deve retornar total e lista de transactions", () => {
+                pm.response.to.have.status(200);
+                pm.expect(jsonData).to.have.property("total").that.is.a("number");
+                pm.expect(jsonData).to.have.property("transactions").that.is.an("array");
+                pm.expect(jsonData.transactions.length).to.eql(jsonData.total);
+            });
+        } else if (statusCode === 401) {
+            pm.test("401 Unauthorized - Token JWT ausente ou inválido", () => {
+                pm.response.to.have.status(401);
+                pm.expect(jsonData).to.have.property("error", "UNAUTHORIZED");
+            });
+        }
+        ```
+      security:
+        - bearerAuth: []
+      x-postman-events:
+        - listen: test
+          script:
+            type: text/javascript
+            exec:
+              - 'const statusCode = pm.response.code;'
+              - 'const jsonData = pm.response.json();'
+              - 'pm.test("Tempo de resposta menor que 1000ms e Content-Type JSON", () => {'
+              - '    pm.expect(pm.response.responseTime).to.be.below(1000);'
+              - '    pm.expect(pm.response.headers.get("Content-Type")).to.include("application/json");'
+              - '});'
+              - 'if (statusCode === 200) {'
+              - '    pm.test("200 OK - Deve retornar total e array de transactions", () => {'
+              - '        pm.response.to.have.status(200);'
+              - '        pm.expect(jsonData).to.have.property("total").that.is.a("number");'
+              - '        pm.expect(jsonData).to.have.property("transactions").that.is.an("array");'
+              - '        pm.expect(jsonData.transactions.length).to.eql(jsonData.total);'
+              - '    });'
+              - '} else if (statusCode === 401) {'
+              - '    pm.test("401 Unauthorized - Token JWT ausente ou inválido", () => {'
+              - '        pm.response.to.have.status(401);'
+              - '        pm.expect(jsonData).to.have.property("error", "UNAUTHORIZED");'
+              - '    });'
+              - '}'
+      parameters:
+        - in: query
+          name: accountId
+          schema:
+            type: string
+          description: Filtrar por ID da conta
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [PENDING, PAID, FAILED, REFUNDED]
+          description: Filtrar por status da transação
+        - in: query
+          name: type
+          schema:
+            type: string
+            enum: [CHARGE, PAYMENT, CREDIT, DEBIT]
+          description: Filtrar por tipo da transação
+      responses:
+        '200':
+          description: Lista de transações retornada com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  transactions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Transaction'
+              examples:
+                TransactionsList:
+                  summary: 200 OK - Lista de transações
+                  value:
+                    total: 1
+                    transactions:
+                      - _id: c98de76f-54ba-4321-9876-543210fedcba
+                        id: c98de76f-54ba-4321-9876-543210fedcba
+                        merchantId: f47ac10b-58cc-4372-a567-0e02b2c3d479
+                        accountId: a12bc34d-56ef-4789-8012-3456789abcde
+                        type: CHARGE
+                        amount: 250.00
+                        currency: BRL
+                        status: PAID
+                        description: Pedido #9841 - Assinatura Anual
+                        idempotencyKey: idem-key-2026-0001
+                        refundReason: null
+                        refundedAt: null
+                        metadata:
+                          orderId: "9841"
+                        createdAt: "2026-11-12T18:00:00.000Z"
+                        updatedAt: "2026-11-12T18:00:00.000Z"
+        '401':
+          description: Token JWT ausente ou inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                Unauthorized:
+                  summary: 401 Unauthorized - Token ausente ou inválido
+                  value:
+                    error: UNAUTHORIZED
+                    message: "Token de autenticação ausente ou malformado. Utilize o formato Authorization: Bearer <token>"
+
+  /transactions/{id}:
+    get:
+      operationId: getTransactionById
+      tags: [Transactions]
+      summary: Consulta uma transação específica pelo ID
+      description: |
+        Retorna os detalhes completos de uma transação pelo seu ID (`{{transaction_id}}`).
+
+        ### Postman Test Script (`Tests`)
+        ```javascript
+        const statusCode = pm.response.code;
+        const jsonData = pm.response.json();
+
+        pm.test("Tempo de resposta menor que 1000ms e Content-Type JSON", () => {
+            pm.expect(pm.response.responseTime).to.be.below(1000);
+            pm.expect(pm.response.headers.get("Content-Type")).to.include("application/json");
+        });
+
+        if (statusCode === 200) {
+            pm.test("200 OK - Transação retornada com campos válidos", () => {
+                pm.response.to.have.status(200);
+                pm.expect(jsonData).to.have.property("transaction").that.is.an("object");
+                pm.expect(jsonData.transaction).to.have.property("_id");
+                pm.expect(jsonData.transaction).to.have.property("currency", "BRL");
+                pm.expect(jsonData.transaction.status).to.be.oneOf(["PENDING", "PAID", "FAILED", "REFUNDED"]);
+            });
+        } else if (statusCode === 404) {
+            pm.test("404 Not Found - Transação não encontrada", () => {
+                pm.response.to.have.status(404);
+                pm.expect(jsonData).to.have.property("error", "TRANSACTION_NOT_FOUND");
+                pm.expect(jsonData).to.have.property("message", "Transação não encontrada para o lojista autenticado");
+            });
+        } else if (statusCode === 401) {
+            pm.test("401 Unauthorized - Token JWT ausente ou inválido", () => {
+                pm.response.to.have.status(401);
+                pm.expect(jsonData).to.have.property("error", "UNAUTHORIZED");
+            });
+        }
+        ```
+      security:
+        - bearerAuth: []
+      x-postman-events:
+        - listen: test
+          script:
+            type: text/javascript
+            exec:
+              - 'const statusCode = pm.response.code;'
+              - 'const jsonData = pm.response.json();'
+              - 'pm.test("Tempo de resposta menor que 1000ms e Content-Type JSON", () => {'
+              - '    pm.expect(pm.response.responseTime).to.be.below(1000);'
+              - '    pm.expect(pm.response.headers.get("Content-Type")).to.include("application/json");'
+              - '});'
+              - 'if (statusCode === 200) {'
+              - '    pm.test("200 OK - Detalhes da transação retornados com sucesso", () => {'
+              - '        pm.response.to.have.status(200);'
+              - '        pm.expect(jsonData).to.have.property("transaction").that.is.an("object");'
+              - '        pm.expect(jsonData.transaction.status).to.be.oneOf(["PENDING", "PAID", "FAILED", "REFUNDED"]);'
+              - '    });'
+              - '} else if (statusCode === 404) {'
+              - '    pm.test("404 Not Found - Transação não encontrada", () => {'
+              - '        pm.response.to.have.status(404);'
+              - '        pm.expect(jsonData).to.have.property("error", "TRANSACTION_NOT_FOUND");'
+              - '        pm.expect(jsonData).to.have.property("message", "Transação não encontrada para o lojista autenticado");'
+              - '    });'
+              - '} else if (statusCode === 401) {'
+              - '    pm.test("401 Unauthorized - Token JWT ausente ou inválido", () => {'
+              - '        pm.response.to.have.status(401);'
+              - '        pm.expect(jsonData).to.have.property("error", "UNAUTHORIZED");'
+              - '    });'
+              - '}'
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            example: c98de76f-54ba-4321-9876-543210fedcba
+          description: ID da transação (`{{transaction_id}}`)
+      responses:
+        '200':
+          description: Detalhes da transação
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transaction:
+                    $ref: '#/components/schemas/Transaction'
+              examples:
+                TransactionDetail:
+                  summary: 200 OK - Transação encontrada
+                  value:
+                    transaction:
+                      _id: c98de76f-54ba-4321-9876-543210fedcba
+                      id: c98de76f-54ba-4321-9876-543210fedcba
+                      merchantId: f47ac10b-58cc-4372-a567-0e02b2c3d479
+                      accountId: a12bc34d-56ef-4789-8012-3456789abcde
+                      type: CHARGE
+                      amount: 250.00
+                      currency: BRL
+                      status: PAID
+                      description: Pedido #9841 - Assinatura Anual
+                      idempotencyKey: idem-key-2026-0001
+                      refundReason: null
+                      refundedAt: null
+                      metadata:
+                        orderId: "9841"
+                      createdAt: "2026-11-12T18:00:00.000Z"
+                      updatedAt: "2026-11-12T18:00:00.000Z"
+        '401':
+          description: Token JWT ausente ou inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                Unauthorized:
+                  summary: 401 Unauthorized - Token ausente ou inválido
+                  value:
+                    error: UNAUTHORIZED
+                    message: "Token de autenticação ausente ou malformado. Utilize o formato Authorization: Bearer <token>"
+        '404':
+          description: Transação não encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                TransactionNotFound:
+                  summary: 404 Not Found - Transação inexistente
+                  value:
+                    error: TRANSACTION_NOT_FOUND
+                    message: Transação não encontrada para o lojista autenticado
+
+  /transactions/{id}/refund:
+    post:
+      operationId: refundTransaction
+      tags: [Transactions]
+      summary: Solicita o estorno (REFUND) de uma transação com status PAID
+      description: |
+        Realiza o estorno financeiro de uma transação e altera seu estado para `REFUNDED`.
+        - **Máquina de Estados:** Apenas transações com status `PAID` podem ser estornadas. Tentativas de estornar transações `PENDING`, `FAILED` ou já `REFUNDED` retornam `422 Unprocessable Entity`.
+
+        ### Postman Test Script (`Tests`)
+        ```javascript
+        const statusCode = pm.response.code;
+        const jsonData = pm.response.json();
+
+        pm.test("Tempo de resposta menor que 1000ms e Content-Type JSON", () => {
+            pm.expect(pm.response.responseTime).to.be.below(1000);
+            pm.expect(pm.response.headers.get("Content-Type")).to.include("application/json");
+        });
+
+        if (statusCode === 200) {
+            pm.test("200 OK - Estorno realizado e status alterado para REFUNDED", () => {
+                pm.response.to.have.status(200);
+                pm.expect(jsonData).to.have.property("message", "Estorno de transação realizado com sucesso");
+                pm.expect(jsonData.transaction).to.have.property("status", "REFUNDED");
+                pm.expect(jsonData.transaction).to.have.property("refundedAt").that.is.a("string");
+                pm.expect(jsonData.transaction).to.have.property("refundReason").that.is.a("string");
+                pm.expect(jsonData.accountBalance).to.be.a("number").and.to.be.at.least(0);
+            });
+        } else if (statusCode === 422) {
+            pm.test("422 Unprocessable Entity - Transição de estado inválida ou saldo insuficiente para estorno", () => {
+                pm.response.to.have.status(422);
+                pm.expect(jsonData.error).to.be.oneOf([
+                    "INVALID_STATE_TRANSITION",
+                    "TRANSACTION_ALREADY_REFUNDED",
+                    "INSUFFICIENT_FUNDS_FOR_REFUND"
+                ]);
+            });
+        } else if (statusCode === 404) {
+            pm.test("404 Not Found - Transação não encontrada", () => {
+                pm.response.to.have.status(404);
+                pm.expect(jsonData).to.have.property("error", "TRANSACTION_NOT_FOUND");
+                pm.expect(jsonData).to.have.property("message", "Transação não encontrada para o lojista autenticado");
+            });
+        } else if (statusCode === 401) {
+            pm.test("401 Unauthorized - Token JWT ausente ou inválido", () => {
+                pm.response.to.have.status(401);
+                pm.expect(jsonData).to.have.property("error", "UNAUTHORIZED");
+            });
+        }
+        ```
+      security:
+        - bearerAuth: []
+      x-postman-events:
+        - listen: test
+          script:
+            type: text/javascript
+            exec:
+              - 'const statusCode = pm.response.code;'
+              - 'const jsonData = pm.response.json();'
+              - 'pm.test("Tempo de resposta menor que 1000ms e Content-Type JSON", () => {'
+              - '    pm.expect(pm.response.responseTime).to.be.below(1000);'
+              - '    pm.expect(pm.response.headers.get("Content-Type")).to.include("application/json");'
+              - '});'
+              - 'if (statusCode === 200) {'
+              - '    pm.test("200 OK - Estorno de transação realizado com sucesso (status REFUNDED)", () => {'
+              - '        pm.response.to.have.status(200);'
+              - '        pm.expect(jsonData).to.have.property("message", "Estorno de transação realizado com sucesso");'
+              - '        pm.expect(jsonData.transaction).to.have.property("status", "REFUNDED");'
+              - '        pm.expect(jsonData.transaction).to.have.property("refundedAt").that.is.a("string");'
+              - '        pm.expect(jsonData.accountBalance).to.be.a("number").and.to.be.at.least(0);'
+              - '    });'
+              - '} else if (statusCode === 422) {'
+              - '    pm.test("422 Unprocessable Entity - Máquina de estados bloqueou estorno inválido", () => {'
+              - '        pm.response.to.have.status(422);'
+              - '        pm.expect(jsonData.error).to.be.oneOf(["INVALID_STATE_TRANSITION", "TRANSACTION_ALREADY_REFUNDED", "INSUFFICIENT_FUNDS_FOR_REFUND"]);'
+              - '    });'
+              - '} else if (statusCode === 404) {'
+              - '    pm.test("404 Not Found - Transação não encontrada", () => {'
+              - '        pm.response.to.have.status(404);'
+              - '        pm.expect(jsonData).to.have.property("error", "TRANSACTION_NOT_FOUND");'
+              - '        pm.expect(jsonData).to.have.property("message", "Transação não encontrada para o lojista autenticado");'
+              - '    });'
+              - '} else if (statusCode === 401) {'
+              - '    pm.test("401 Unauthorized - Token JWT ausente ou inválido", () => {'
+              - '        pm.response.to.have.status(401);'
+              - '        pm.expect(jsonData).to.have.property("error", "UNAUTHORIZED");'
+              - '    });'
+              - '}'
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            example: c98de76f-54ba-4321-9876-543210fedcba
+          description: ID da transação a ser estornada (`{{transaction_id}}`)
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefundTransactionRequest'
+            examples:
+              EstornoComMotivo:
+                summary: Solicitação de estorno com motivo (200)
+                value:
+                  reason: Cancelamento solicitado pelo cliente dentro do prazo de 7 dias
+      responses:
+        '200':
+          description: Transação estornada com sucesso e saldo atualizado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Estorno de transação realizado com sucesso
+                  transaction:
+                    $ref: '#/components/schemas/Transaction'
+                  accountBalance:
+                    type: number
+                    example: 1000.00
+                  webhookDeliveries:
+                    type: array
+                    items:
+                      type: object
+              examples:
+                RefundSuccess:
+                  summary: 200 OK - Estorno de transação realizado com sucesso
+                  value:
+                    message: Estorno de transação realizado com sucesso
+                    transaction:
+                      _id: c98de76f-54ba-4321-9876-543210fedcba
+                      id: c98de76f-54ba-4321-9876-543210fedcba
+                      merchantId: f47ac10b-58cc-4372-a567-0e02b2c3d479
+                      accountId: a12bc34d-56ef-4789-8012-3456789abcde
+                      type: CHARGE
+                      amount: 250.00
+                      currency: BRL
+                      status: REFUNDED
+                      description: Pedido #9841 - Assinatura Anual
+                      idempotencyKey: idem-key-2026-0001
+                      refundReason: Cancelamento solicitado pelo cliente dentro do prazo de 7 dias
+                      refundedAt: "2026-11-12T18:05:00.000Z"
+                      metadata:
+                        orderId: "9841"
+                      createdAt: "2026-11-12T18:00:00.000Z"
+                      updatedAt: "2026-11-12T18:05:00.000Z"
+                    accountBalance: 1000.00
+                    webhookDeliveries: []
+        '401':
+          description: Token JWT ausente ou inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                Unauthorized:
+                  summary: 401 Unauthorized - Token ausente ou inválido
+                  value:
+                    error: UNAUTHORIZED
+                    message: "Token de autenticação ausente ou malformado. Utilize o formato Authorization: Bearer <token>"
+        '404':
+          description: Transação não encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                TransactionNotFound:
+                  summary: 404 Not Found - Transação não encontrada
+                  value:
+                    error: TRANSACTION_NOT_FOUND
+                    message: Transação não encontrada para o lojista autenticado
+        '422':
+          description: Transição de estado inválida (ex. estorno de transação PENDING, FAILED ou já REFUNDED) ou saldo insuficiente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                InvalidStateTransitionPending:
+                  summary: 422 Unprocessable Entity - Tentativa de estornar transação PENDING
+                  value:
+                    error: INVALID_STATE_TRANSITION
+                    message: "Transição de estado inválida: não é permitido estornar uma transação com status PENDING. Apenas transações com status PAID podem ser estornadas."
+                AlreadyRefunded:
+                  summary: 422 Unprocessable Entity - Transação já estornada anteriormente
+                  value:
+                    error: TRANSACTION_ALREADY_REFUNDED
+                    message: "Transição de estado inválida: esta transação já se encontra com status REFUNDED"
+                InsufficientFundsForRefund:
+                  summary: 422 Unprocessable Entity - Saldo insuficiente para estornar cobrança
+                  value:
+                    error: INSUFFICIENT_FUNDS_FOR_REFUND
+                    message: Saldo insuficiente na conta para estornar esta cobrança sem negativar a carteira
+
+  /webhooks:
+    post:
+      operationId: createWebhook
+      tags: [Webhooks]
+      summary: Cadastra uma URL de destino para notificações de eventos de pagamento
+      description: |
+        Registra um endpoint HTTP/HTTPS para receber eventos assinados via HMAC SHA-256 (`transaction.paid`, `transaction.failed`, `transaction.refunded`, `webhook.test`).
+
+        ### Postman Test Script (`Tests`)
+        ```javascript
+        const statusCode = pm.response.code;
+        const jsonData = pm.response.json();
+
+        pm.test("Tempo de resposta menor que 1000ms e Content-Type JSON", () => {
+            pm.expect(pm.response.responseTime).to.be.below(1000);
+            pm.expect(pm.response.headers.get("Content-Type")).to.include("application/json");
+        });
+
+        if (statusCode === 201) {
+            pm.test("201 Created - Webhook registrado com sucesso", () => {
+                pm.response.to.have.status(201);
+                pm.expect(jsonData).to.have.property("message", "Webhook registrado com sucesso");
+                pm.expect(jsonData.webhook).to.have.property("_id").that.is.a("string");
+                pm.expect(jsonData.webhook).to.have.property("url").that.match(/^https?:\/\//);
+                pm.expect(jsonData.webhook).to.have.property("active", true);
+                pm.expect(jsonData.webhook.events).to.be.an("array").that.is.not.empty;
+            });
+
+            pm.collectionVariables.set("webhook_id", jsonData.webhook._id);
+        } else if (statusCode === 400) {
+            pm.test("400 Bad Request - URL do webhook inválida", () => {
+                pm.response.to.have.status(400);
+                pm.expect(jsonData).to.have.property("error", "INVALID_WEBHOOK_URL");
+                pm.expect(jsonData).to.have.property("message", "Informe uma URL válida (http:// ou https://) para o cadastro do webhook");
+            });
+        } else if (statusCode === 401) {
+            pm.test("401 Unauthorized - Token JWT ausente ou inválido", () => {
+                pm.response.to.have.status(401);
+                pm.expect(jsonData).to.have.property("error", "UNAUTHORIZED");
+            });
+        }
+        ```
+      security:
+        - bearerAuth: []
+      x-postman-events:
+        - listen: test
+          script:
+            type: text/javascript
+            exec:
+              - 'const statusCode = pm.response.code;'
+              - 'const jsonData = pm.response.json();'
+              - 'pm.test("Tempo de resposta menor que 1000ms e Content-Type JSON", () => {'
+              - '    pm.expect(pm.response.responseTime).to.be.below(1000);'
+              - '    pm.expect(pm.response.headers.get("Content-Type")).to.include("application/json");'
+              - '});'
+              - 'if (statusCode === 201) {'
+              - '    pm.test("201 Created - Webhook registrado com sucesso", () => {'
+              - '        pm.response.to.have.status(201);'
+              - '        pm.expect(jsonData).to.have.property("message", "Webhook registrado com sucesso");'
+              - '        pm.expect(jsonData.webhook).to.have.property("_id").that.is.a("string");'
+              - '        pm.expect(jsonData.webhook).to.have.property("active", true);'
+              - '        pm.expect(jsonData.webhook.events).to.be.an("array").that.is.not.empty;'
+              - '    });'
+              - '    pm.collectionVariables.set("webhook_id", jsonData.webhook._id);'
+              - '} else if (statusCode === 400) {'
+              - '    pm.test("400 Bad Request - URL inválida para webhook", () => {'
+              - '        pm.response.to.have.status(400);'
+              - '        pm.expect(jsonData).to.have.property("error", "INVALID_WEBHOOK_URL");'
+              - '        pm.expect(jsonData).to.have.property("message", "Informe uma URL válida (http:// ou https://) para o cadastro do webhook");'
+              - '    });'
+              - '} else if (statusCode === 401) {'
+              - '    pm.test("401 Unauthorized - Token JWT ausente ou inválido", () => {'
+              - '        pm.response.to.have.status(401);'
+              - '        pm.expect(jsonData).to.have.property("error", "UNAUTHORIZED");'
+              - '    });'
+              - '}'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWebhookRequest'
+            examples:
+              WebhookValido:
+                summary: Cadastro de Webhook válido (201)
+                value:
+                  url: https://api.lojaestrela.com.br/webhooks/pulsar
+                  events:
+                    - transaction.paid
+                    - transaction.failed
+                    - transaction.refunded
+                    - webhook.test
+                  secret: whsec_pulsar_hmac_secret_2026
+              WebhookUrlInvalida:
+                summary: URL sem protocolo http/https (400)
+                value:
+                  url: ftp://url-invalida.com/webhook
+      responses:
+        '201':
+          description: Webhook cadastrado com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Webhook registrado com sucesso
+                  webhook:
+                    $ref: '#/components/schemas/Webhook'
+              examples:
+                WebhookCreated:
+                  summary: 201 Created - Webhook registrado com sucesso
+                  value:
+                    message: Webhook registrado com sucesso
+                    webhook:
+                      _id: d11ee22f-33aa-44bb-855c-6677889900aa
+                      id: d11ee22f-33aa-44bb-855c-6677889900aa
+                      merchantId: f47ac10b-58cc-4372-a567-0e02b2c3d479
+                      url: https://api.lojaestrela.com.br/webhooks/pulsar
+                      events:
+                        - transaction.paid
+                        - transaction.failed
+                        - transaction.refunded
+                        - webhook.test
+                      secret: whsec_pulsar_hmac_secret_2026
+                      active: true
+                      deliveryLogs: []
+                      createdAt: "2026-11-12T18:00:00.000Z"
+                      updatedAt: "2026-11-12T18:00:00.000Z"
+        '400':
+          description: URL inválida ou ausente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                InvalidWebhookUrl:
+                  summary: 400 Bad Request - URL inválida
+                  value:
+                    error: INVALID_WEBHOOK_URL
+                    message: Informe uma URL válida (http:// ou https://) para o cadastro do webhook
+        '401':
+          description: Token JWT ausente ou inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                Unauthorized:
+                  summary: 401 Unauthorized - Token ausente ou inválido
+                  value:
+                    error: UNAUTHORIZED
+                    message: "Token de autenticação ausente ou malformado. Utilize o formato Authorization: Bearer <token>"
+
+    get:
+      operationId: listWebhooks
+      tags: [Webhooks]
+      summary: Lista os webhooks configurados pelo lojista e seus logs de entrega
+      description: |
+        Retorna os webhooks cadastrados pelo lojista autenticado, incluindo o histórico de entregas e assinaturas geradas (`deliveryLogs`).
+
+        ### Postman Test Script (`Tests`)
+        ```javascript
+        const statusCode = pm.response.code;
+        const jsonData = pm.response.json();
+
+        pm.test("Tempo de resposta menor que 1000ms e Content-Type JSON", () => {
+            pm.expect(pm.response.responseTime).to.be.below(1000);
+            pm.expect(pm.response.headers.get("Content-Type")).to.include("application/json");
+        });
+
+        if (statusCode === 200) {
+            pm.test("200 OK - Deve retornar total e array de webhooks com deliveryLogs", () => {
+                pm.response.to.have.status(200);
+                pm.expect(jsonData).to.have.property("total").that.is.a("number");
+                pm.expect(jsonData).to.have.property("webhooks").that.is.an("array");
+                pm.expect(jsonData.webhooks.length).to.eql(jsonData.total);
+            });
+        } else if (statusCode === 401) {
+            pm.test("401 Unauthorized - Token JWT ausente ou inválido", () => {
+                pm.response.to.have.status(401);
+                pm.expect(jsonData).to.have.property("error", "UNAUTHORIZED");
+            });
+        }
+        ```
+      security:
+        - bearerAuth: []
+      x-postman-events:
+        - listen: test
+          script:
+            type: text/javascript
+            exec:
+              - 'const statusCode = pm.response.code;'
+              - 'const jsonData = pm.response.json();'
+              - 'pm.test("Tempo de resposta menor que 1000ms e Content-Type JSON", () => {'
+              - '    pm.expect(pm.response.responseTime).to.be.below(1000);'
+              - '    pm.expect(pm.response.headers.get("Content-Type")).to.include("application/json");'
+              - '});'
+              - 'if (statusCode === 200) {'
+              - '    pm.test("200 OK - Deve retornar total e array de webhooks", () => {'
+              - '        pm.response.to.have.status(200);'
+              - '        pm.expect(jsonData).to.have.property("total").that.is.a("number");'
+              - '        pm.expect(jsonData).to.have.property("webhooks").that.is.an("array");'
+              - '        pm.expect(jsonData.webhooks.length).to.eql(jsonData.total);'
+              - '    });'
+              - '} else if (statusCode === 401) {'
+              - '    pm.test("401 Unauthorized - Token JWT ausente ou inválido", () => {'
+              - '        pm.response.to.have.status(401);'
+              - '        pm.expect(jsonData).to.have.property("error", "UNAUTHORIZED");'
+              - '    });'
+              - '}'
+      responses:
+        '200':
+          description: Lista de webhooks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  webhooks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Webhook'
+              examples:
+                WebhooksList:
+                  summary: 200 OK - Lista de webhooks e logs de entrega
+                  value:
+                    total: 1
+                    webhooks:
+                      - _id: d11ee22f-33aa-44bb-855c-6677889900aa
+                        id: d11ee22f-33aa-44bb-855c-6677889900aa
+                        merchantId: f47ac10b-58cc-4372-a567-0e02b2c3d479
+                        url: https://api.lojaestrela.com.br/webhooks/pulsar
+                        events:
+                          - transaction.paid
+                          - transaction.failed
+                          - transaction.refunded
+                          - webhook.test
+                        secret: whsec_pulsar_hmac_secret_2026
+                        active: true
+                        deliveryLogs: []
+                        createdAt: "2026-11-12T18:00:00.000Z"
+                        updatedAt: "2026-11-12T18:00:00.000Z"
+        '401':
+          description: Token JWT ausente ou inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                Unauthorized:
+                  summary: 401 Unauthorized - Token ausente ou inválido
+                  value:
+                    error: UNAUTHORIZED
+                    message: "Token de autenticação ausente ou malformado. Utilize o formato Authorization: Bearer <token>"
+
+  /webhooks/test:
+    post:
+      operationId: testWebhook
+      tags: [Webhooks]
+      summary: Simula o disparo de um evento de webhook gerando assinatura HMAC SHA-256 no header X-Signature
+      description: |
+        Simula o disparo de uma notificação de evento e valida a geração da assinatura criptográfica **HMAC SHA-256** (`X-Signature: sha256=<64_hex_chars>`), registrando a tentativa em `deliveryLogs`.
+
+        ### Postman Test Script (`Tests`)
+        ```javascript
+        const statusCode = pm.response.code;
+        const jsonData = pm.response.json();
+
+        pm.test("Tempo de resposta menor que 1000ms e Content-Type JSON", () => {
+            pm.expect(pm.response.responseTime).to.be.below(1000);
+            pm.expect(pm.response.headers.get("Content-Type")).to.include("application/json");
+        });
+
+        if (statusCode === 200) {
+            pm.test("200 OK - Disparo simulado e mensagem de confirmação", () => {
+                pm.response.to.have.status(200);
+                pm.expect(jsonData).to.have.property("message", "Disparo de webhook simulado com assinatura HMAC SHA-256 gerada");
+                pm.expect(jsonData).to.have.property("event").that.is.a("string");
+                pm.expect(jsonData).to.have.property("payload").that.is.an("object");
+                pm.expect(jsonData).to.have.property("deliveryLog").that.is.an("object");
+            });
+
+            pm.test("Segurança HMAC - Header X-Signature deve conter hash SHA-256 válido (sha256=<64 hex>)", () => {
+                pm.expect(jsonData.headers).to.have.property("X-Signature");
+                pm.expect(jsonData.headers["X-Signature"]).to.match(/^sha256=[a-f0-9]{64}$/);
+                pm.expect(jsonData.deliveryLog.signature).to.eql(jsonData.headers["X-Signature"]);
+            });
+        } else if (statusCode === 404) {
+            pm.test("404 Not Found - Webhook informado não encontrado", () => {
+                pm.response.to.have.status(404);
+                pm.expect(jsonData).to.have.property("error", "WEBHOOK_NOT_FOUND");
+                pm.expect(jsonData).to.have.property("message", "Webhook não encontrado para o lojista autenticado");
+            });
+        } else if (statusCode === 401) {
+            pm.test("401 Unauthorized - Token JWT ausente ou inválido", () => {
+                pm.response.to.have.status(401);
+                pm.expect(jsonData).to.have.property("error", "UNAUTHORIZED");
+            });
+        }
+        ```
+      security:
+        - bearerAuth: []
+      x-postman-events:
+        - listen: test
+          script:
+            type: text/javascript
+            exec:
+              - 'const statusCode = pm.response.code;'
+              - 'const jsonData = pm.response.json();'
+              - 'pm.test("Tempo de resposta menor que 1000ms e Content-Type JSON", () => {'
+              - '    pm.expect(pm.response.responseTime).to.be.below(1000);'
+              - '    pm.expect(pm.response.headers.get("Content-Type")).to.include("application/json");'
+              - '});'
+              - 'if (statusCode === 200) {'
+              - '    pm.test("200 OK - Disparo de webhook simulado com assinatura HMAC SHA-256 gerada", () => {'
+              - '        pm.response.to.have.status(200);'
+              - '        pm.expect(jsonData).to.have.property("message", "Disparo de webhook simulado com assinatura HMAC SHA-256 gerada");'
+              - '        pm.expect(jsonData.headers).to.have.property("X-Signature");'
+              - '        pm.expect(jsonData.headers["X-Signature"]).to.match(/^sha256=[a-f0-9]{64}$/);'
+              - '        pm.expect(jsonData.deliveryLog.signature).to.eql(jsonData.headers["X-Signature"]);'
+              - '    });'
+              - '} else if (statusCode === 404) {'
+              - '    pm.test("404 Not Found - Webhook não encontrado", () => {'
+              - '        pm.response.to.have.status(404);'
+              - '        pm.expect(jsonData).to.have.property("error", "WEBHOOK_NOT_FOUND");'
+              - '        pm.expect(jsonData).to.have.property("message", "Webhook não encontrado para o lojista autenticado");'
+              - '    });'
+              - '} else if (statusCode === 401) {'
+              - '    pm.test("401 Unauthorized - Token JWT ausente ou inválido", () => {'
+              - '        pm.response.to.have.status(401);'
+              - '        pm.expect(jsonData).to.have.property("error", "UNAUTHORIZED");'
+              - '    });'
+              - '}'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TestWebhookRequest'
+            examples:
+              SimulacaoPadrao:
+                summary: Simulação de evento webhook.test (200)
+                value:
+                  event: webhook.test
+                  data:
+                    orderId: "9841"
+                    status: PAID
+                    amount: 250.00
+              SimulacaoWebhookInexistente:
+                summary: Simulação informando webhookId inexistente (404)
+                value:
+                  webhookId: webhook-id-inexistente-999
+                  event: webhook.test
+      responses:
+        '200':
+          description: Disparo simulado com sucesso e assinatura HMAC SHA-256 gerada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Disparo de webhook simulado com assinatura HMAC SHA-256 gerada
+                  webhookId:
+                    type: string
+                    nullable: true
+                    example: d11ee22f-33aa-44bb-855c-6677889900aa
+                  targetUrl:
+                    type: string
+                    example: https://api.lojaestrela.com.br/webhooks/pulsar
+                  event:
+                    type: string
+                    example: webhook.test
+                  headers:
+                    type: object
+                    properties:
+                      Content-Type:
+                        type: string
+                        example: application/json
+                      X-Signature:
+                        type: string
+                        example: sha256=9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+                      X-Pulsar-Event:
+                        type: string
+                        example: webhook.test
+                  payload:
+                    type: object
+                  deliveryLog:
+                    type: object
+              examples:
+                WebhookTestSuccess:
+                  summary: 200 OK - Assinatura HMAC SHA-256 gerada no X-Signature
+                  value:
+                    message: Disparo de webhook simulado com assinatura HMAC SHA-256 gerada
+                    webhookId: d11ee22f-33aa-44bb-855c-6677889900aa
+                    targetUrl: https://api.lojaestrela.com.br/webhooks/pulsar
+                    event: webhook.test
+                    headers:
+                      Content-Type: application/json
+                      X-Signature: sha256=9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+                      X-Pulsar-Event: webhook.test
+                    payload:
+                      id: evt_3b9f1c2d-4e5a-4b6c-8d7e-9f0a1b2c3d4e
+                      event: webhook.test
+                      createdAt: "2026-11-12T18:00:00.000Z"
+                      data:
+                        orderId: "9841"
+                        status: PAID
+                        amount: 250.00
+                    deliveryLog:
+                      _id: e99ff88a-77bb-466c-955d-4433221100ff
+                      event: webhook.test
+                      signature: sha256=9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+                      status: SIMULATED
+                      statusCode: 200
+                      attemptedAt: "2026-11-12T18:00:00.000Z"
+        '401':
+          description: Token JWT ausente ou inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                Unauthorized:
+                  summary: 401 Unauthorized - Token ausente ou inválido
+                  value:
+                    error: UNAUTHORIZED
+                    message: "Token de autenticação ausente ou malformado. Utilize o formato Authorization: Bearer <token>"
+        '404':
+          description: Webhook informado não encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                WebhookNotFound:
+                  summary: 404 Not Found - Webhook inexistente
+                  value:
+                    error: WEBHOOK_NOT_FOUND
+                    message: Webhook não encontrado para o lojista autenticado
