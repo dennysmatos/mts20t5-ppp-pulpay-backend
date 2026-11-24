@@ -40,7 +40,9 @@ const INITIAL_STRUCTURE = {
 };
 
 export const getDatabaseFilePath = () => {
-  const relativeOrAbsolute = process.env.DB_FILE || 'data/database.json';
+  const relativeOrAbsolute =
+    process.env.DB_FILE ||
+    (process.env.VERCEL ? '/tmp/database.json' : 'data/database.json');
   return path.resolve(process.cwd(), relativeOrAbsolute);
 };
 
@@ -56,11 +58,13 @@ export const initDatabase = () => {
   }
 
   if (!fs.existsSync(dbFilePath)) {
-    fs.writeFileSync(
-      dbFilePath,
-      JSON.stringify(INITIAL_STRUCTURE, null, 2),
-      'utf8'
-    );
+    const seedPath = path.resolve(process.cwd(), 'data/database.json');
+    const initialContent =
+      process.env.VERCEL && !process.env.DB_FILE && fs.existsSync(seedPath)
+        ? fs.readFileSync(seedPath, 'utf8')
+        : JSON.stringify(INITIAL_STRUCTURE, null, 2);
+
+    fs.writeFileSync(dbFilePath, initialContent, 'utf8');
   } else {
     try {
       const raw = fs.readFileSync(dbFilePath, 'utf8').trim();

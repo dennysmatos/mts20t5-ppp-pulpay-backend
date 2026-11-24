@@ -151,6 +151,7 @@ vite.config.ts.timestamp-*
 # macOS and local tooling
 .DS_Store
 .antigravity/
+.vercel
 
 # Temporary test databases
 data/test-database*.json

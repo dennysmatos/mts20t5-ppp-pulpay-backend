@@ -18,6 +18,11 @@ app.use(express.json());
 // Documentação Interativa OpenAPI 3.0 (Swagger UI)
 setupSwagger(app);
 
+// Redirecionamento da raiz para a documentação interativa Swagger UI
+app.get('/', (_req, res) => {
+  res.redirect('/api-docs/');
+});
+
 // Rota de Healthcheck
 app.get('/health', (_req, res) => {
   res.status(200).json({

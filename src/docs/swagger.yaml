@@ -11,6 +11,8 @@ info:
     - **Exemplos de Requisição e Resposta (`examples`):** Cenários positivos (`200`, `201`) e negativos (`400`, `401`, `404`, `409`, `422`) mapeados com as mensagens exatas da API.
 
 servers:
+  - url: /
+    description: Servidor Atual (Vercel Cloud / Local)
   - url: http://localhost:3000
     description: Servidor Local de Desenvolvimento
 

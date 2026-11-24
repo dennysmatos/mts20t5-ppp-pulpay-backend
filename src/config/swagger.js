@@ -7,6 +7,13 @@ import swaggerUi from 'swagger-ui-express';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const SWAGGER_CDN_CSS =
+  'https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.17.14/swagger-ui.min.css';
+const SWAGGER_CDN_JS = [
+  'https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.17.14/swagger-ui-bundle.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.17.14/swagger-ui-standalone-preset.min.js'
+];
+
 export const loadSwaggerSpec = () => {
   const swaggerPath = path.resolve(__dirname, '../docs/swagger.yaml');
   const fileContents = fs.readFileSync(swaggerPath, 'utf8');
@@ -15,6 +22,7 @@ export const loadSwaggerSpec = () => {
 
 export const setupSwagger = (app) => {
   const swaggerDocument = loadSwaggerSpec();
+  const isVercel = Boolean(process.env.VERCEL);
 
   app.get('/api-docs.json', (_req, res) => {
     res.status(200).json(swaggerDocument);
@@ -25,6 +33,12 @@ export const setupSwagger = (app) => {
     swaggerUi.serve,
     swaggerUi.setup(swaggerDocument, {
       customSiteTitle: 'Pulsar Payments API - Docs',
+      ...(isVercel
+        ? {
+            customCssUrl: SWAGGER_CDN_CSS,
+            customJs: SWAGGER_CDN_JS
+          }
+        : {}),
       swaggerOptions: {
         persistAuthorization: true
       }
@@ -33,4 +47,3 @@ export const setupSwagger = (app) => {
 };
 
 export default setupSwagger;
-
