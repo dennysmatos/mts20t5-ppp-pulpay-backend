@@ -2,18 +2,29 @@
 
 API REST do **Pulsar Payments**, um Hub de Pagamentos, Gestão de Carteiras e Conciliação com Webhooks desenvolvido com finalidade didática para o **Trabalho Final da Mentoria 2.0 (Turma 5) — Júlio de Lima**.
 
-O projeto foi desenhado aplicando boas práticas de Engenharia de Software e **Testabilidade (Design for Testability)**, utilizando **persistência local em arquivo JSON (`data/database.json`)** sem dependência de bancos de dados externos ou containers. Isso garante inicialização imediata, reprodutibilidade determinística de cenários e execução ágil de testes unitários, testes de contrato e automação de API (QA).
+O projeto foi desenhado aplicando boas práticas de Engenharia de Software, **Arquitetura Cloud-Native (Serverless na Vercel)**, **Persistência Relacional Gerenciada em PostgreSQL (Aiven Cloud com SSL/TLS CA)** e **Design for Testability (Testabilidade)**, garantindo alta disponibilidade para integração com o Frontend Web, reprodutibilidade determinística de cenários e execução isolada de testes unitários, testes de contrato e automação de API (QA).
+
+---
+
+## Links Públicos do Ambiente de Produção (Vercel + Aiven PostgreSQL)
+
+- **Documentação Interativa (Swagger UI OpenAPI 3.0):**
+  - https://pulpay-backend.vercel.app/api-docs/#/
+- **Especificação OpenAPI 3.0 em JSON (Importação direta no Postman):**
+  - https://pulpay-backend.vercel.app/api-docs.json
+- **Healthcheck e Status do Banco (`postgresql`):**
+  - https://pulpay-backend.vercel.app/health
 
 ---
 
 ## Sumário
 
 1. [Stack Tecnológica](#1-stack-tecnológica)
-2. [Arquitetura em Camadas e Testabilidade](#2-arquitetura-em-camadas-e-testabilidade)
+2. [Arquitetura em Camadas, Cloud e Modelagem de Dados (PostgreSQL)](#2-arquitetura-em-camadas-cloud-e-modelagem-de-dados-postgresql)
 3. [Requisitos, Regras de Negócio e Máquina de Estados](#3-requisitos-regras-de-negócio-e-máquina-de-estados)
 4. [Padrões de Resposta e Contratos de Erro HTTP](#4-padrões-de-resposta-e-contratos-de-erro-http)
 5. [Estratégia e Heurísticas de Teste (Mentoria 2.0)](#5-estratégia-e-heurísticas-de-teste-mentoria-20)
-6. [Instalação, Execução e Testes](#6-instalação-execução-e-testes)
+6. [Instalação, Configuração do PostgreSQL e Execução](#6-instalação-configuração-do-postgresql-e-execução)
 7. [Exemplos de Fluxo de Uso (cURL)](#7-exemplos-de-fluxo-de-uso-curl)
 
 ---
@@ -21,28 +32,43 @@ O projeto foi desenhado aplicando boas práticas de Engenharia de Software e **T
 ## 1. Stack Tecnológica
 
 - **Runtime:** Node.js v18+ (ES Modules nativo com `"type": "module"`)
-- **Framework HTTP:** `express`
-- **Persistência Local:** Arquivo JSON (`data/database.json`) manipulado com módulos nativos (`node:fs`, `node:path`, `node:crypto`)
+- **Framework HTTP:** `express` + `cors` (configurado com suporte a preflight `OPTIONS` e headers customizados para integração com Frontend Web)
+- **Banco de Dados Relacional (Cloud):** **PostgreSQL** gerenciado na **Aiven Cloud** (`pg` / `Pool` com conexão criptografada `sslmode=require`, validação de Certificado CA X.509 e controle de pool de conexões)
+- **Hospedagem & Deploy Contínuo:** **Vercel Serverless Functions** (`api/index.js` e `vercel.json`)
 - **Autenticação & Criptografia:**
   - `bcryptjs` para hashing seguro de senhas (salt factor `10`)
   - `jsonwebtoken` para autenticação stateless via Bearer Token JWT
   - `node:crypto` para geração de UUIDs v4 e assinatura criptográfica **HMAC SHA-256** (`X-Signature`) em Webhooks
 - **Documentação & Contrato de API:** OpenAPI 3.0 (`src/docs/swagger.yaml`) servida via `swagger-ui-express` (`/api-docs` e `/api-docs.json`)
-- **Testes Automatizados:** Executor nativo `node:test` + `node:assert/strict` com cobertura de código superior a **98%**
+- **Testes Automatizados:** Executor nativo `node:test` + `node:assert/strict` com adaptador isolado para execução rápida e offline (`NODE_ENV=test`), alcançando cobertura de código superior a **95%**
 
 ---
 
-## 2. Arquitetura em Camadas e Testabilidade
+## 2. Arquitetura em Camadas, Cloud e Modelagem de Dados (PostgreSQL)
 
-A separação de responsabilidades segue o padrão de camadas (**Routes → Controllers → Services → Models → Persistence**), isolando as regras financeiras da camada HTTP para favorecer tanto testes unitários de caixa-branca quanto testes integrados de caixa-preta:
+### 2.1 Visão Geral da Arquitetura
+
+```mermaid
+flowchart LR
+    FE["Aplicação Web (Frontend)"] -->|HTTPS / CORS| API["Vercel Serverless / Express API"]
+    QA["Postman / Automação QA"] -->|OpenAPI 3.0 / REST| API
+    API -->|Rotas| CTRL["Controllers"]
+    CTRL -->|Orquestração| SVC["Services (Regras Financeiras)"]
+    SVC -->|Queries Parametrizadas| MDL["Models"]
+    MDL -->|SSL/TLS + CA Certificate| PG[("PostgreSQL (Aiven Cloud)")]
+```
+
+### 2.2 Estrutura de Diretórios
+
+A separação de responsabilidades segue o padrão de camadas (**Routes → Controllers → Services → Models → Database Pool**), isolando as regras financeiras da camada HTTP:
 
 ```text
 ppp-pulpay-backend/
-├── data/
-│   └── database.json                   # Persistência local JSON (merchants, accounts, transactions, webhooks)
+├── api/
+│   └── index.js                        # Entrypoint Serverless para deploy na Vercel
 ├── src/
 │   ├── config/
-│   │   ├── database.js                 # Motor de leitura/escrita JSON, normalização e loader nativo de .env
+│   │   ├── database.js                 # Pool PostgreSQL (Aiven SSL CA), auto-migration, seed e adaptador de testes
 │   │   └── swagger.js                  # Carregamento do swagger.yaml e exposição do Swagger UI (/api-docs)
 │   ├── controllers/
 │   │   ├── authController.js           # Registro e autenticação de lojistas (Merchants)
@@ -53,10 +79,10 @@ ppp-pulpay-backend/
 │   │   ├── authMiddleware.js           # Validação do header Authorization: Bearer <token>
 │   │   └── errorHandler.js             # Classe AppError e padronização centralizada de erros HTTP
 │   ├── models/
-│   │   ├── Merchant.js                 # Entidade de lojista com omissão automática de senha (toJSON)
-│   │   ├── Account.js                  # Entidade de conta/carteira em BRL com arredondamento decimal
-│   │   ├── Transaction.js              # Entidade de transação financeira e controle de idempotência
-│   │   └── Webhook.js                  # Entidade de webhook e histórico de entregas (deliveryLogs)
+│   │   ├── Merchant.js                 # Model SQL de lojistas (tabela merchants) com omissão de senha (toJSON)
+│   │   ├── Account.js                  # Model SQL de carteiras em BRL (tabela accounts)
+│   │   ├── Transaction.js              # Model SQL de transações e idempotência (tabela transactions)
+│   │   └── Webhook.js                  # Model SQL de webhooks e histórico JSONB (tabela webhooks)
 │   ├── routes/
 │   │   ├── authRoutes.js               # Rotas públicas /auth
 │   │   ├── accountRoutes.js            # Rotas autenticadas /accounts
@@ -69,14 +95,81 @@ ppp-pulpay-backend/
 │   │   └── webhookService.js           # Validação de URL, assinatura HMAC SHA-256 e disparo de eventos
 │   ├── docs/
 │   │   └── swagger.yaml                # Especificação OpenAPI 3.0 com exemplos e scripts para Postman
-│   ├── app.js                          # Configuração da aplicação Express, middlewares e rotas
-│   └── server.js                       # Ponto de entrada e inicialização do servidor HTTP
+│   ├── app.js                          # Configuração da aplicação Express, CORS, middlewares e rotas
+│   └── server.js                       # Ponto de entrada e inicialização do servidor HTTP local
 ├── tests/
-│   └── unit/                           # Suíte de testes unitários isolados por camada (56 testes)
+│   └── unit/                           # Suíte de testes unitários isolados por camada (22 suítes / 57 testes)
 ├── .env.example
 ├── LICENSE
 ├── package.json
+├── vercel.json                         # Configuração de roteamento e build Serverless na Vercel
 └── README.md
+```
+
+### 2.3 Diagrama Entidade-Relacionamento (PostgreSQL — Aiven Cloud)
+
+O motor de banco de dados ([src/config/database.js](src/config/database.js)) garante automaticamente a criação das tabelas e índices (`CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS`) no PostgreSQL:
+
+```mermaid
+erDiagram
+    MERCHANTS ||--o{ ACCOUNTS : "possui"
+    MERCHANTS ||--o{ TRANSACTIONS : "realiza"
+    MERCHANTS ||--o{ WEBHOOKS : "configura"
+    ACCOUNTS ||--o{ TRANSACTIONS : "movimenta"
+
+    MERCHANTS {
+        varchar _id PK
+        varchar id
+        varchar name
+        varchar email UK
+        varchar document
+        varchar password
+        varchar createdAt
+        varchar updatedAt
+    }
+
+    ACCOUNTS {
+        varchar _id PK
+        varchar id
+        varchar merchantId FK
+        varchar name
+        varchar currency
+        numeric balance
+        varchar status
+        varchar createdAt
+        varchar updatedAt
+    }
+
+    TRANSACTIONS {
+        varchar _id PK
+        varchar id
+        varchar merchantId FK
+        varchar accountId FK
+        varchar type
+        numeric amount
+        varchar currency
+        varchar status
+        text description
+        varchar idempotencyKey
+        text refundReason
+        varchar refundedAt
+        jsonb metadata
+        varchar createdAt
+        varchar updatedAt
+    }
+
+    WEBHOOKS {
+        varchar _id PK
+        varchar id
+        varchar merchantId FK
+        text url
+        jsonb events
+        varchar secret
+        boolean active
+        jsonb deliveryLogs
+        varchar createdAt
+        varchar updatedAt
+    }
 ```
 
 ---
@@ -130,16 +223,16 @@ stateDiagram-v2
 
 ### 3.3 Requisitos Não Funcionais (RNF)
 
-- **RNF01 — Desempenho:** Tempo de resposta esperado inferior a `500ms` no endpoint `/health` e inferior a `1000ms` nas operações transacionais locais.
-- **RNF02 — Padronização de Contrato:** Respostas sempre em `application/json` documentadas em OpenAPI 3.0 (`/api-docs`).
-- **RNF03 — Portabilidade Zero-Config:** Execução local sem necessidade de banco externo, utilizando arquivo JSON configurável via variável `DB_FILE`.
-- **RNF04 — Qualidade de Código:** Cobertura de testes unitários superior a **98%** nas camadas da aplicação.
+- **RNF01 — Desempenho:** Tempo de resposta esperado inferior a `500ms` no endpoint `/health` e inferior a `1000ms` nas operações transacionais.
+- **RNF02 — Padronização de Contrato e CORS:** Respostas sempre em `application/json` documentadas em OpenAPI 3.0 (`/api-docs`) e cabeçalhos CORS liberados para consumo por aplicações Web Frontend.
+- **RNF03 — Persistência Cloud Segura (SSL/TLS):** Conexão ao PostgreSQL na Aiven criptografada com validação de Certificado CA (`sslmode=require`) e pool limitado a até 20 conexões.
+- **RNF04 — Qualidade e Isolamento de Testes:** Cobertura de testes unitários superior a **95%** com execução 100% isolada da base produtiva (`NODE_ENV=test`).
 
 ---
 
 ## 4. Padrões de Resposta e Contratos de Erro HTTP
 
-Todos os erros tratados pelo middleware centralizado (`src/middlewares/errorHandler.js`) retornam uma estrutura JSON determinística para facilitar asserções em testes automatizados:
+Todos os erros tratados pelo middleware centralizado (`src/middlewares/errorHandler.js`) retornam uma estrutura JSON determinística para facilitar asserções em testes automatizados e tratamento no Frontend:
 
 ```json
 {
@@ -183,10 +276,10 @@ Este repositório foi estruturado para exercitar as principais técnicas de desi
 
 ---
 
-## 6. Instalação, Execução e Testes
+## 6. Instalação, Configuração do PostgreSQL e Execução
 
 ### Pré-requisitos
-- **Node.js** `v18+` (não requer banco de dados externo nem Docker)
+- **Node.js** `v18+`
 
 ### Passo a passo
 
@@ -199,17 +292,27 @@ Este repositório foi estruturado para exercitar as principais técnicas de desi
    ```bash
    cp .env.example .env
    ```
-   Variáveis suportadas:
+   Variáveis de ambiente suportadas:
    ```env
    PORT=3000
-   DB_FILE=data/database.json
    JWT_SECRET=pulsar_super_secret_jwt_key_2026
    JWT_EXPIRES_IN=1d
    WEBHOOK_SECRET=whsec_pulsar_hmac_secret_2026
+
+   # PostgreSQL (Aiven Cloud)
+   DATABASE_URL=postgres://<USER>:<PASSWORD>@<HOST>:<PORT>/<DATABASE>?sslmode=require
+   PG_HOST=<HOST>
+   PG_PORT=20151
+   PG_DATABASE=defaultdb
+   PG_USER=<USER>
+   PG_PASSWORD=<PASSWORD>
+   PG_SSL_MODE=require
+   PG_POOL_MAX=20
+   PG_CA_CERT="-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----"
    ```
 
 3. Inicie o servidor HTTP:
-   - **Modo Desenvolvimento (com hot-reload ignorando `data/`):**
+   - **Modo Desenvolvimento (com hot-reload via Nodemon):**
      ```bash
      npm run dev
      ```
@@ -219,27 +322,28 @@ Este repositório foi estruturado para exercitar as principais técnicas de desi
      ```
 
 4. Acesse a documentação interativa **Swagger UI (OpenAPI 3.0)**:
-   - Interface visual: `http://localhost:3000/api-docs`
-   - Especificação JSON (pronta para importação no Postman): `http://localhost:3000/api-docs.json` ou arquivo `src/docs/swagger.yaml`
+   - **Na Vercel (Produção):** `https://pulpay-backend.vercel.app/api-docs/#/`
+   - **Localmente:** `http://localhost:3000/api-docs/#/`
+   - **JSON OpenAPI 3.0 (para Postman):** `https://pulpay-backend.vercel.app/api-docs.json` ou `src/docs/swagger.yaml`
 
 5. Execute a suíte de **Testes Unitários e Relatório de Cobertura**:
    ```bash
-   # Executa as 22 suítes e 56 testes unitários
+   # Executa as 22 suítes e 57 testes unitários de forma isolada (NODE_ENV=test)
    npm test
 
-   # Executa os testes exibindo a tabela de cobertura de linhas, branches e funções (> 98%)
+   # Executa os testes exibindo a tabela de cobertura de linhas, branches e funções
    npm run test:coverage
    ```
-
-> **Isolamento de Dados nos Testes:** A suíte unitária utiliza arquivos temporários dedicados (`data/test-database-*.json`) que são removidos automaticamente ao término da execução, preservando intacto o arquivo principal `data/database.json`.
 
 ---
 
 ## 7. Exemplos de Fluxo de Uso (cURL)
 
+> Você pode substituir `https://pulpay-backend.vercel.app` por `http://localhost:3000` ao testar localmente.
+
 ### 7.1 Registrar um Lojista (`POST /auth/register`)
 ```bash
-curl -X POST http://localhost:3000/auth/register \
+curl -X POST https://pulpay-backend.vercel.app/auth/register \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Pulsar Store LTDA",
@@ -251,7 +355,7 @@ curl -X POST http://localhost:3000/auth/register \
 
 ### 7.2 Autenticar e Obter o Token JWT (`POST /auth/login`)
 ```bash
-curl -X POST http://localhost:3000/auth/login \
+curl -X POST https://pulpay-backend.vercel.app/auth/login \
   -H "Content-Type: application/json" \
   -d '{
     "email": "qa@pulsarstore.com.br",
@@ -261,7 +365,7 @@ curl -X POST http://localhost:3000/auth/login \
 
 ### 7.3 Criar uma Conta / Carteira (`POST /accounts`)
 ```bash
-curl -X POST http://localhost:3000/accounts \
+curl -X POST https://pulpay-backend.vercel.app/accounts \
   -H "Authorization: Bearer <SEU_TOKEN_JWT>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -273,7 +377,7 @@ curl -X POST http://localhost:3000/accounts \
 
 ### 7.4 Criar uma Transação com Idempotência (`POST /transactions`)
 ```bash
-curl -X POST http://localhost:3000/transactions \
+curl -X POST https://pulpay-backend.vercel.app/transactions \
   -H "Authorization: Bearer <SEU_TOKEN_JWT>" \
   -H "Idempotency-Key: idem-order-1001" \
   -H "Content-Type: application/json" \
@@ -288,7 +392,7 @@ curl -X POST http://localhost:3000/transactions \
 
 ### 7.5 Solicitar Estorno (`POST /transactions/:id/refund`)
 ```bash
-curl -X POST http://localhost:3000/transactions/<ID_DA_TRANSACAO>/refund \
+curl -X POST https://pulpay-backend.vercel.app/transactions/<ID_DA_TRANSACAO>/refund \
   -H "Authorization: Bearer <SEU_TOKEN_JWT>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -299,7 +403,7 @@ curl -X POST http://localhost:3000/transactions/<ID_DA_TRANSACAO>/refund \
 ### 7.6 Cadastrar e Simular Webhook Assinado (`POST /webhooks` e `POST /webhooks/test`)
 ```bash
 # Cadastrar Webhook
-curl -X POST http://localhost:3000/webhooks \
+curl -X POST https://pulpay-backend.vercel.app/webhooks \
   -H "Authorization: Bearer <SEU_TOKEN_JWT>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -308,7 +412,7 @@ curl -X POST http://localhost:3000/webhooks \
   }'
 
 # Simular Disparo Assinado (X-Signature: sha256=...)
-curl -X POST http://localhost:3000/webhooks/test \
+curl -X POST https://pulpay-backend.vercel.app/webhooks/test \
   -H "Authorization: Bearer <SEU_TOKEN_JWT>" \
   -H "Content-Type: application/json" \
   -d '{

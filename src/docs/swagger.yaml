@@ -13,6 +13,8 @@ info:
 servers:
   - url: /
     description: Servidor Atual (Vercel Cloud / Local)
+  - url: https://pulpay-backend.vercel.app
+    description: Servidor de Produção (Vercel Cloud + PostgreSQL Aiven)
   - url: http://localhost:3000
     description: Servidor Local de Desenvolvimento
 
