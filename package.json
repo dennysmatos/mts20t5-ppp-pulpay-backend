@@ -9,14 +9,9 @@
   },
   "scripts": {
     "start": "node src/server.js",
-    "dev": "nodemon --ignore data/ src/server.js",
-    "test": "node --test --test-concurrency=1 'tests/unit/**/*.test.js'",
-    "test:coverage": "node --test --test-concurrency=1 --experimental-test-coverage 'tests/unit/**/*.test.js'"
-  },
-  "nodemonConfig": {
-    "ignore": [
-      "data/**"
-    ]
+    "dev": "nodemon src/server.js",
+    "test": "NODE_ENV=test node --test --test-concurrency=1 'tests/unit/**/*.test.js'",
+    "test:coverage": "NODE_ENV=test node --test --test-concurrency=1 --experimental-test-coverage 'tests/unit/**/*.test.js'"
   },
   "repository": {
     "type": "git",
@@ -26,6 +21,8 @@
     "payments",
     "webhooks",
     "reconciliation",
+    "postgresql",
+    "aiven",
     "rest-api",
     "qa-automation",
     "mentoria-2.0"
@@ -39,6 +36,7 @@
     "js-yaml": "^4.1.0",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
+    "pg": "^8.20.0",
     "swagger-ui-express": "^5.0.1"
   },
   "devDependencies": {

@@ -1,8 +1,20 @@
 import crypto from 'node:crypto';
-import { readDatabase, writeDatabase } from '../config/database.js';
+import { queryPostgres } from '../config/database.js';
+
+const normalizeAccountRow = (row) => ({
+  _id: String(row._id),
+  id: String(row.id || row._id),
+  merchantId: String(row.merchantId),
+  name: String(row.name),
+  currency: String(row.currency),
+  balance: Number(Number(row.balance).toFixed(2)),
+  status: String(row.status),
+  createdAt: String(row.createdAt),
+  updatedAt: String(row.updatedAt)
+});
 
 const createAccountInstance = (record) => ({
-  ...record,
+  ...normalizeAccountRow(record),
   toJSON() {
     const clone = { ...this };
     delete clone.toJSON;
@@ -10,29 +22,31 @@ const createAccountInstance = (record) => ({
     return clone;
   },
   async save() {
-    const db = readDatabase();
-    const index = db.accounts.findIndex((item) => item._id === this._id);
     this.updatedAt = new Date().toISOString();
+    this.balance = Number(Number(this.balance).toFixed(2));
 
-    const rawToSave = {
-      _id: this._id,
-      id: this._id,
-      merchantId: this.merchantId,
-      name: this.name,
-      currency: this.currency,
-      balance: Number(Number(this.balance).toFixed(2)),
-      status: this.status,
-      createdAt: this.createdAt,
-      updatedAt: this.updatedAt
-    };
+    await queryPostgres(
+      `INSERT INTO accounts (_id, id, "merchantId", name, currency, balance, status, "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       ON CONFLICT (_id) DO UPDATE SET
+         name = EXCLUDED.name,
+         currency = EXCLUDED.currency,
+         balance = EXCLUDED.balance,
+         status = EXCLUDED.status,
+         "updatedAt" = EXCLUDED."updatedAt"`,
+      [
+        this._id,
+        this._id,
+        this.merchantId,
+        this.name,
+        this.currency,
+        this.balance,
+        this.status,
+        this.createdAt,
+        this.updatedAt
+      ]
+    );
 
-    if (index >= 0) {
-      db.accounts[index] = rawToSave;
-    } else {
-      db.accounts.push(rawToSave);
-    }
-
-    writeDatabase(db);
     return this;
   }
 });
@@ -55,7 +69,6 @@ const Account = {
     balance = 0,
     status = 'ACTIVE'
   }) {
-    const db = readDatabase();
     const now = new Date().toISOString();
     const id = crypto.randomUUID();
 
@@ -71,21 +84,41 @@ const Account = {
       updatedAt: now
     };
 
-    db.accounts.push(record);
-    writeDatabase(db);
+    await queryPostgres(
+      `INSERT INTO accounts (_id, id, "merchantId", name, currency, balance, status, "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [
+        record._id,
+        record.id,
+        record.merchantId,
+        record.name,
+        record.currency,
+        record.balance,
+        record.status,
+        record.createdAt,
+        record.updatedAt
+      ]
+    );
 
     return createAccountInstance(record);
   },
 
   async findOne(filter = {}) {
-    const db = readDatabase();
-    const found = db.accounts.find((item) => matchesFilter(item, filter));
+    const { rows } = await queryPostgres(
+      'SELECT * FROM accounts ORDER BY "createdAt" DESC'
+    );
+    const found = rows
+      .map(normalizeAccountRow)
+      .find((item) => matchesFilter(item, filter));
     return found ? createAccountInstance(found) : null;
   },
 
   async find(filter = {}) {
-    const db = readDatabase();
-    return db.accounts
+    const { rows } = await queryPostgres(
+      'SELECT * FROM accounts ORDER BY "createdAt" DESC'
+    );
+    return rows
+      .map(normalizeAccountRow)
       .filter((item) => matchesFilter(item, filter))
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
       .map(createAccountInstance);

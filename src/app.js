@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
 import { setupSwagger } from './config/swagger.js';
+import { isPostgresEnabled } from './config/database.js';
 import authRoutes from './routes/authRoutes.js';
 import accountRoutes from './routes/accountRoutes.js';
 import transactionRoutes from './routes/transactionRoutes.js';
@@ -10,8 +11,23 @@ import { errorHandler, notFoundHandler } from './middlewares/errorHandler.js';
 
 const app = express();
 
-// Middlewares Globais
-app.use(cors());
+// Middlewares Globais e Configuração Explícita de CORS para Integração com Frontend
+app.use(
+  cors({
+    origin: '*',
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'Idempotency-Key',
+      'X-Requested-With',
+      'Accept',
+      'Origin'
+    ],
+    exposedHeaders: ['X-Signature', 'X-Pulsar-Event']
+  })
+);
+app.options('*', cors());
 app.use(morgan('dev'));
 app.use(express.json());
 
@@ -28,6 +44,7 @@ app.get('/health', (_req, res) => {
   res.status(200).json({
     status: 'ok',
     service: 'Pulsar Payments API',
+    database: isPostgresEnabled() ? 'postgresql' : 'local-json',
     timestamp: new Date().toISOString()
   });
 });
@@ -43,4 +60,3 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 export default app;
-

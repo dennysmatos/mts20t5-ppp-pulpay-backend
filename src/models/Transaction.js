@@ -1,11 +1,32 @@
 import crypto from 'node:crypto';
-import { readDatabase, writeDatabase } from '../config/database.js';
+import { queryPostgres } from '../config/database.js';
 
 export const TRANSACTION_STATUSES = ['PENDING', 'PAID', 'FAILED', 'REFUNDED'];
 export const TRANSACTION_TYPES = ['CHARGE', 'PAYMENT', 'CREDIT', 'DEBIT'];
 
+const normalizeTransactionRow = (row) => ({
+  _id: String(row._id),
+  id: String(row.id || row._id),
+  merchantId: String(row.merchantId),
+  accountId: String(row.accountId),
+  type: String(row.type),
+  amount: Number(Number(row.amount).toFixed(2)),
+  currency: String(row.currency),
+  status: String(row.status),
+  description: row.description ?? '',
+  idempotencyKey: row.idempotencyKey ?? null,
+  refundReason: row.refundReason ?? null,
+  refundedAt: row.refundedAt ?? null,
+  metadata:
+    typeof row.metadata === 'string'
+      ? JSON.parse(row.metadata)
+      : row.metadata || {},
+  createdAt: String(row.createdAt),
+  updatedAt: String(row.updatedAt)
+});
+
 const createTransactionInstance = (record) => ({
-  ...record,
+  ...normalizeTransactionRow(record),
   toJSON() {
     const clone = { ...this };
     delete clone.toJSON;
@@ -13,35 +34,38 @@ const createTransactionInstance = (record) => ({
     return clone;
   },
   async save() {
-    const db = readDatabase();
-    const index = db.transactions.findIndex((item) => item._id === this._id);
     this.updatedAt = new Date().toISOString();
+    this.amount = Number(Number(this.amount).toFixed(2));
 
-    const rawToSave = {
-      _id: this._id,
-      id: this._id,
-      merchantId: this.merchantId,
-      accountId: this.accountId,
-      type: this.type,
-      amount: Number(Number(this.amount).toFixed(2)),
-      currency: this.currency,
-      status: this.status,
-      description: this.description,
-      idempotencyKey: this.idempotencyKey,
-      refundReason: this.refundReason,
-      refundedAt: this.refundedAt,
-      metadata: this.metadata,
-      createdAt: this.createdAt,
-      updatedAt: this.updatedAt
-    };
+    await queryPostgres(
+      `INSERT INTO transactions (_id, id, "merchantId", "accountId", type, amount, currency, status, description, "idempotencyKey", "refundReason", "refundedAt", metadata, "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14, $15)
+       ON CONFLICT (_id) DO UPDATE SET
+         status = EXCLUDED.status,
+         description = EXCLUDED.description,
+         "refundReason" = EXCLUDED."refundReason",
+         "refundedAt" = EXCLUDED."refundedAt",
+         metadata = EXCLUDED.metadata,
+         "updatedAt" = EXCLUDED."updatedAt"`,
+      [
+        this._id,
+        this._id,
+        this.merchantId,
+        this.accountId,
+        this.type,
+        this.amount,
+        this.currency,
+        this.status,
+        this.description,
+        this.idempotencyKey,
+        this.refundReason,
+        this.refundedAt,
+        JSON.stringify(this.metadata || {}),
+        this.createdAt,
+        this.updatedAt
+      ]
+    );
 
-    if (index >= 0) {
-      db.transactions[index] = rawToSave;
-    } else {
-      db.transactions.push(rawToSave);
-    }
-
-    writeDatabase(db);
     return this;
   }
 });
@@ -70,7 +94,6 @@ const Transaction = {
     refundedAt = null,
     metadata = {}
   }) {
-    const db = readDatabase();
     const now = new Date().toISOString();
     const id = crypto.randomUUID();
 
@@ -92,21 +115,47 @@ const Transaction = {
       updatedAt: now
     };
 
-    db.transactions.push(record);
-    writeDatabase(db);
+    await queryPostgres(
+      `INSERT INTO transactions (_id, id, "merchantId", "accountId", type, amount, currency, status, description, "idempotencyKey", "refundReason", "refundedAt", metadata, "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14, $15)`,
+      [
+        record._id,
+        record.id,
+        record.merchantId,
+        record.accountId,
+        record.type,
+        record.amount,
+        record.currency,
+        record.status,
+        record.description,
+        record.idempotencyKey,
+        record.refundReason,
+        record.refundedAt,
+        JSON.stringify(record.metadata),
+        record.createdAt,
+        record.updatedAt
+      ]
+    );
 
     return createTransactionInstance(record);
   },
 
   async findOne(filter = {}) {
-    const db = readDatabase();
-    const found = db.transactions.find((item) => matchesFilter(item, filter));
+    const { rows } = await queryPostgres(
+      'SELECT * FROM transactions ORDER BY "createdAt" DESC'
+    );
+    const found = rows
+      .map(normalizeTransactionRow)
+      .find((item) => matchesFilter(item, filter));
     return found ? createTransactionInstance(found) : null;
   },
 
   async find(filter = {}) {
-    const db = readDatabase();
-    return db.transactions
+    const { rows } = await queryPostgres(
+      'SELECT * FROM transactions ORDER BY "createdAt" DESC'
+    );
+    return rows
+      .map(normalizeTransactionRow)
       .filter((item) => matchesFilter(item, filter))
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
       .map(createTransactionInstance);

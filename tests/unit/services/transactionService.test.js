@@ -1,14 +1,11 @@
-import { describe, it, beforeEach, after } from 'node:test';
+import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
 
-process.env.DB_FILE = 'data/test-database-transactions.json';
+process.env.NODE_ENV = 'test';
 
 import {
-  getDatabaseFilePath,
   resetDatabase,
-  readDatabase,
-  writeDatabase
+  queryPostgres
 } from '../../../src/config/database.js';
 import { createAccount, getAccountById } from '../../../src/services/accountService.js';
 import { createWebhook } from '../../../src/services/webhookService.js';
@@ -20,23 +17,16 @@ import {
 } from '../../../src/services/transactionService.js';
 
 describe('Service: transactionService (Saldo, Idempotência e Máquina de Estados)', () => {
-  const testDbPath = getDatabaseFilePath();
   const merchantId = 'merchant-tx-01';
   let account;
 
   beforeEach(async () => {
-    process.env.DB_FILE = 'data/test-database-transactions.json';
+    process.env.NODE_ENV = 'test';
     resetDatabase();
     account = await createAccount(merchantId, {
       name: 'Conta Principal QA',
       initialBalance: 500.0
     });
-  });
-
-  after(() => {
-    if (fs.existsSync(testDbPath)) {
-      fs.unlinkSync(testDbPath);
-    }
   });
 
   describe('createTransaction - Regras Financeiras e Webhooks', () => {
@@ -397,10 +387,31 @@ describe('Service: transactionService (Saldo, Idempotência e Máquina de Estado
         status: 'PAID'
       });
 
-      // Remove a conta do banco para testar proteção de integridade (404 ACCOUNT_NOT_FOUND)
-      const db = readDatabase();
-      db.accounts = [];
-      writeDatabase(db);
+      // Remove a conta associada para validar a proteção de integridade (404 ACCOUNT_NOT_FOUND)
+      const existingTx = await queryPostgres('SELECT * FROM transactions');
+      resetDatabase();
+      for (const t of existingTx.rows) {
+        await queryPostgres(
+          'INSERT INTO transactions (_id, id, "merchantId", "accountId", type, amount, currency, status, description, "idempotencyKey", "refundReason", "refundedAt", metadata, "createdAt", "updatedAt") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)',
+          [
+            t._id,
+            t.id,
+            t.merchantId,
+            t.accountId,
+            t.type,
+            t.amount,
+            t.currency,
+            t.status,
+            t.description,
+            t.idempotencyKey,
+            t.refundReason,
+            t.refundedAt,
+            t.metadata,
+            t.createdAt,
+            t.updatedAt
+          ]
+        );
+      }
 
       await assert.rejects(
         () => refundTransaction(merchantId, paidTx._id),
@@ -409,4 +420,3 @@ describe('Service: transactionService (Saldo, Idempotência e Máquina de Estado
     });
   });
 });
-

@@ -1,27 +1,18 @@
-import { describe, it, beforeEach, after } from 'node:test';
+import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
 
-process.env.DB_FILE = 'data/test-database-models.json';
+process.env.NODE_ENV = 'test';
 
-import { getDatabaseFilePath, resetDatabase } from '../../../src/config/database.js';
+import { resetDatabase } from '../../../src/config/database.js';
 import Merchant from '../../../src/models/Merchant.js';
 import Account from '../../../src/models/Account.js';
 import Transaction from '../../../src/models/Transaction.js';
 import Webhook from '../../../src/models/Webhook.js';
 
-describe('Models: Persistência e Operações de Domínio em Arquivo', () => {
-  const testDbPath = getDatabaseFilePath();
-
+describe('Models: Operações de Domínio com Persistência PostgreSQL', () => {
   beforeEach(() => {
-    process.env.DB_FILE = 'data/test-database-models.json';
+    process.env.NODE_ENV = 'test';
     resetDatabase();
-  });
-
-  after(() => {
-    if (fs.existsSync(testDbPath)) {
-      fs.unlinkSync(testDbPath);
-    }
   });
 
   describe('Merchant Model', () => {
@@ -136,4 +127,3 @@ describe('Models: Persistência e Operações de Domínio em Arquivo', () => {
     });
   });
 });
-

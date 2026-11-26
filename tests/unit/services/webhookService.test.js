@@ -1,11 +1,10 @@
-import { describe, it, beforeEach, after } from 'node:test';
+import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import fs from 'node:fs';
 
-process.env.DB_FILE = 'data/test-database-webhooks.json';
+process.env.NODE_ENV = 'test';
 
-import { getDatabaseFilePath, resetDatabase } from '../../../src/config/database.js';
+import { resetDatabase } from '../../../src/config/database.js';
 import {
   generateHmacSignature,
   createWebhook,
@@ -15,18 +14,11 @@ import {
 } from '../../../src/services/webhookService.js';
 
 describe('Service: webhookService (Cadastro, Simulação e Assinatura HMAC SHA-256)', () => {
-  const testDbPath = getDatabaseFilePath();
   const merchantId = 'merchant-wh-01';
 
   beforeEach(() => {
-    process.env.DB_FILE = 'data/test-database-webhooks.json';
+    process.env.NODE_ENV = 'test';
     resetDatabase();
-  });
-
-  after(() => {
-    if (fs.existsSync(testDbPath)) {
-      fs.unlinkSync(testDbPath);
-    }
   });
 
   it('deve gerar assinatura HMAC SHA-256 determinística no formato sha256=<hex>', () => {
@@ -140,4 +132,3 @@ describe('Service: webhookService (Cadastro, Simulação e Assinatura HMAC SHA-2
     assert.equal(deliveries[0].targetUrl, 'https://loja.com/paid-only');
   });
 });
-

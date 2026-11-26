@@ -1,8 +1,19 @@
 import crypto from 'node:crypto';
-import { readDatabase, writeDatabase } from '../config/database.js';
+import { queryPostgres } from '../config/database.js';
+
+const normalizeMerchantRow = (row) => ({
+  _id: String(row._id),
+  id: String(row.id || row._id),
+  name: String(row.name),
+  email: String(row.email),
+  document: row.document ?? null,
+  password: String(row.password),
+  createdAt: String(row.createdAt),
+  updatedAt: String(row.updatedAt)
+});
 
 const createMerchantInstance = (record) => ({
-  ...record,
+  ...normalizeMerchantRow(record),
   toJSON() {
     const { password: _password, ...publicData } = this;
     delete publicData.toJSON;
@@ -10,28 +21,29 @@ const createMerchantInstance = (record) => ({
     return publicData;
   },
   async save() {
-    const db = readDatabase();
-    const index = db.merchants.findIndex((item) => item._id === this._id);
     this.updatedAt = new Date().toISOString();
 
-    const rawToSave = {
-      _id: this._id,
-      id: this._id,
-      name: this.name,
-      email: this.email,
-      document: this.document,
-      password: this.password,
-      createdAt: this.createdAt,
-      updatedAt: this.updatedAt
-    };
+    await queryPostgres(
+      `INSERT INTO merchants (_id, id, name, email, document, password, "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (_id) DO UPDATE SET
+         name = EXCLUDED.name,
+         email = EXCLUDED.email,
+         document = EXCLUDED.document,
+         password = EXCLUDED.password,
+         "updatedAt" = EXCLUDED."updatedAt"`,
+      [
+        this._id,
+        this._id,
+        this.name,
+        this.email,
+        this.document,
+        this.password,
+        this.createdAt,
+        this.updatedAt
+      ]
+    );
 
-    if (index >= 0) {
-      db.merchants[index] = rawToSave;
-    } else {
-      db.merchants.push(rawToSave);
-    }
-
-    writeDatabase(db);
     return this;
   }
 });
@@ -48,7 +60,6 @@ const matchesFilter = (item, filter = {}) => {
 
 const Merchant = {
   async create({ name, email, document = null, password }) {
-    const db = readDatabase();
     const now = new Date().toISOString();
     const id = crypto.randomUUID();
 
@@ -63,21 +74,40 @@ const Merchant = {
       updatedAt: now
     };
 
-    db.merchants.push(record);
-    writeDatabase(db);
+    await queryPostgres(
+      `INSERT INTO merchants (_id, id, name, email, document, password, "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [
+        record._id,
+        record.id,
+        record.name,
+        record.email,
+        record.document,
+        record.password,
+        record.createdAt,
+        record.updatedAt
+      ]
+    );
 
     return createMerchantInstance(record);
   },
 
   async findOne(filter = {}) {
-    const db = readDatabase();
-    const found = db.merchants.find((item) => matchesFilter(item, filter));
+    const { rows } = await queryPostgres(
+      'SELECT * FROM merchants ORDER BY "createdAt" DESC'
+    );
+    const found = rows
+      .map(normalizeMerchantRow)
+      .find((item) => matchesFilter(item, filter));
     return found ? createMerchantInstance(found) : null;
   },
 
   async find(filter = {}) {
-    const db = readDatabase();
-    return db.merchants
+    const { rows } = await queryPostgres(
+      'SELECT * FROM merchants ORDER BY "createdAt" DESC'
+    );
+    return rows
+      .map(normalizeMerchantRow)
       .filter((item) => matchesFilter(item, filter))
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
       .map(createMerchantInstance);

@@ -1,8 +1,29 @@
 import crypto from 'node:crypto';
-import { readDatabase, writeDatabase } from '../config/database.js';
+import { queryPostgres } from '../config/database.js';
+
+const normalizeWebhookRow = (row) => ({
+  _id: String(row._id),
+  id: String(row.id || row._id),
+  merchantId: String(row.merchantId),
+  url: String(row.url),
+  events: Array.isArray(row.events)
+    ? row.events
+    : typeof row.events === 'string'
+      ? JSON.parse(row.events)
+      : [],
+  secret: String(row.secret),
+  active: Boolean(row.active),
+  deliveryLogs: Array.isArray(row.deliveryLogs)
+    ? row.deliveryLogs
+    : typeof row.deliveryLogs === 'string'
+      ? JSON.parse(row.deliveryLogs)
+      : [],
+  createdAt: String(row.createdAt),
+  updatedAt: String(row.updatedAt)
+});
 
 const createWebhookInstance = (record) => ({
-  ...record,
+  ...normalizeWebhookRow(record),
   toJSON() {
     const clone = { ...this };
     delete clone.toJSON;
@@ -10,30 +31,32 @@ const createWebhookInstance = (record) => ({
     return clone;
   },
   async save() {
-    const db = readDatabase();
-    const index = db.webhooks.findIndex((item) => item._id === this._id);
     this.updatedAt = new Date().toISOString();
 
-    const rawToSave = {
-      _id: this._id,
-      id: this._id,
-      merchantId: this.merchantId,
-      url: this.url,
-      events: Array.isArray(this.events) ? this.events : [],
-      secret: this.secret,
-      active: Boolean(this.active),
-      deliveryLogs: Array.isArray(this.deliveryLogs) ? this.deliveryLogs : [],
-      createdAt: this.createdAt,
-      updatedAt: this.updatedAt
-    };
+    await queryPostgres(
+      `INSERT INTO webhooks (_id, id, "merchantId", url, events, secret, active, "deliveryLogs", "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8::jsonb, $9, $10)
+       ON CONFLICT (_id) DO UPDATE SET
+         url = EXCLUDED.url,
+         events = EXCLUDED.events,
+         secret = EXCLUDED.secret,
+         active = EXCLUDED.active,
+         "deliveryLogs" = EXCLUDED."deliveryLogs",
+         "updatedAt" = EXCLUDED."updatedAt"`,
+      [
+        this._id,
+        this._id,
+        this.merchantId,
+        this.url,
+        JSON.stringify(Array.isArray(this.events) ? this.events : []),
+        this.secret,
+        Boolean(this.active),
+        JSON.stringify(Array.isArray(this.deliveryLogs) ? this.deliveryLogs : []),
+        this.createdAt,
+        this.updatedAt
+      ]
+    );
 
-    if (index >= 0) {
-      db.webhooks[index] = rawToSave;
-    } else {
-      db.webhooks.push(rawToSave);
-    }
-
-    writeDatabase(db);
     return this;
   }
 });
@@ -67,7 +90,6 @@ const Webhook = {
     secret = process.env.WEBHOOK_SECRET || 'whsec_pulsar_hmac_secret_2026',
     active = true
   }) {
-    const db = readDatabase();
     const now = new Date().toISOString();
     const id = crypto.randomUUID();
 
@@ -84,23 +106,43 @@ const Webhook = {
       updatedAt: now
     };
 
-    db.webhooks.push(record);
-    writeDatabase(db);
+    await queryPostgres(
+      `INSERT INTO webhooks (_id, id, "merchantId", url, events, secret, active, "deliveryLogs", "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8::jsonb, $9, $10)`,
+      [
+        record._id,
+        record.id,
+        record.merchantId,
+        record.url,
+        JSON.stringify(record.events),
+        record.secret,
+        record.active,
+        JSON.stringify(record.deliveryLogs),
+        record.createdAt,
+        record.updatedAt
+      ]
+    );
 
     return createWebhookInstance(record);
   },
 
   async findOne(filter = {}) {
-    const db = readDatabase();
-    const matches = db.webhooks
+    const { rows } = await queryPostgres(
+      'SELECT * FROM webhooks ORDER BY "createdAt" DESC'
+    );
+    const matches = rows
+      .map(normalizeWebhookRow)
       .filter((item) => matchesFilter(item, filter))
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     return matches[0] ? createWebhookInstance(matches[0]) : null;
   },
 
   async find(filter = {}) {
-    const db = readDatabase();
-    return db.webhooks
+    const { rows } = await queryPostgres(
+      'SELECT * FROM webhooks ORDER BY "createdAt" DESC'
+    );
+    return rows
+      .map(normalizeWebhookRow)
       .filter((item) => matchesFilter(item, filter))
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
       .map(createWebhookInstance);

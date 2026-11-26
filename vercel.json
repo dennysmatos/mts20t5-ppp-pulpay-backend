@@ -2,7 +2,7 @@
   "version": 2,
   "functions": {
     "api/index.js": {
-      "includeFiles": "{src/docs/swagger.yaml,data/database.json,node_modules/swagger-ui-dist/**}"
+      "includeFiles": "{src/docs/swagger.yaml,node_modules/swagger-ui-dist/**}"
     }
   },
   "rewrites": [

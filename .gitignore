@@ -153,6 +153,3 @@ vite.config.ts.timestamp-*
 .antigravity/
 .vercel
 
-# Temporary test databases
-data/test-database*.json
-

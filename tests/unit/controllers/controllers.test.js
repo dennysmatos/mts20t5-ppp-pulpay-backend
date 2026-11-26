@@ -1,10 +1,9 @@
-import { describe, it, beforeEach, after } from 'node:test';
+import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
 
-process.env.DB_FILE = 'data/test-database-controllers.json';
+process.env.NODE_ENV = 'test';
 
-import { getDatabaseFilePath, resetDatabase } from '../../../src/config/database.js';
+import { resetDatabase } from '../../../src/config/database.js';
 import * as authController from '../../../src/controllers/authController.js';
 import * as accountController from '../../../src/controllers/accountController.js';
 import * as transactionController from '../../../src/controllers/transactionController.js';
@@ -24,17 +23,9 @@ const createMockRes = () => ({
 });
 
 describe('Controllers: Orquestração HTTP, Status Codes e Encaminhamento de Erros', () => {
-  const testDbPath = getDatabaseFilePath();
-
   beforeEach(() => {
-    process.env.DB_FILE = 'data/test-database-controllers.json';
+    process.env.NODE_ENV = 'test';
     resetDatabase();
-  });
-
-  after(() => {
-    if (fs.existsSync(testDbPath)) {
-      fs.unlinkSync(testDbPath);
-    }
   });
 
   it('authController deve retornar 201 no register, 200 no login e encaminhar erros via next()', async () => {

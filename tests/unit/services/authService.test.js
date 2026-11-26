@@ -1,25 +1,16 @@
-import { describe, it, beforeEach, after } from 'node:test';
+import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
 import jwt from 'jsonwebtoken';
 
-process.env.DB_FILE = 'data/test-database-auth.json';
+process.env.NODE_ENV = 'test';
 
-import { getDatabaseFilePath, resetDatabase } from '../../../src/config/database.js';
+import { resetDatabase } from '../../../src/config/database.js';
 import { registerMerchant, loginMerchant } from '../../../src/services/authService.js';
 
 describe('Service: authService (Registro, Hash bcryptjs e Login JWT)', () => {
-  const testDbPath = getDatabaseFilePath();
-
   beforeEach(() => {
-    process.env.DB_FILE = 'data/test-database-auth.json';
+    process.env.NODE_ENV = 'test';
     resetDatabase();
-  });
-
-  after(() => {
-    if (fs.existsSync(testDbPath)) {
-      fs.unlinkSync(testDbPath);
-    }
   });
 
   describe('registerMerchant', () => {
@@ -132,4 +123,3 @@ describe('Service: authService (Registro, Hash bcryptjs e Login JWT)', () => {
     });
   });
 });
-

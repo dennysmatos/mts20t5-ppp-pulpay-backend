@@ -1,10 +1,9 @@
-import { describe, it, beforeEach, after } from 'node:test';
+import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
 
-process.env.DB_FILE = 'data/test-database-accounts.json';
+process.env.NODE_ENV = 'test';
 
-import { getDatabaseFilePath, resetDatabase } from '../../../src/config/database.js';
+import { resetDatabase } from '../../../src/config/database.js';
 import {
   createAccount,
   listAccounts,
@@ -12,18 +11,11 @@ import {
 } from '../../../src/services/accountService.js';
 
 describe('Service: accountService (Gestão de Carteiras e Trava de Saldo Negativo)', () => {
-  const testDbPath = getDatabaseFilePath();
   const merchantId = 'merchant-acc-01';
 
   beforeEach(() => {
-    process.env.DB_FILE = 'data/test-database-accounts.json';
+    process.env.NODE_ENV = 'test';
     resetDatabase();
-  });
-
-  after(() => {
-    if (fs.existsSync(testDbPath)) {
-      fs.unlinkSync(testDbPath);
-    }
   });
 
   it('deve criar conta com valores padrão (saldo 0, moeda BRL, status ACTIVE)', async () => {
@@ -101,4 +93,3 @@ describe('Service: accountService (Gestão de Carteiras e Trava de Saldo Negativ
     );
   });
 });
-
